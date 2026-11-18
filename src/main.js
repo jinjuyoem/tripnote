@@ -309,7 +309,7 @@ function viewPlan(t, days) {
   }).join('')}</div>
   ${wx ? `<div class="wxbar ${wx.kind}"><span class="wxe">${wx.emoji}</span><div><b>${esc(wx.text || '')} ${Math.round(wx.max)}° / ${Math.round(wx.min)}°</b>
       <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
-  ${items.length > 1 ? `<div class="planbar"><button class="ordbtn ${S.ordering ? 'on' : ''}" data-act="ordering">${S.ordering ? '✓ 순서 편집 끝' : '↕ 순서 바꾸기'}</button></div>` : ''}
+  <div class="planbar">${S.ordering ? '' : '<button class="ordbtn" data-act="newMemo">📝 메모 추가</button>'}${items.length > 1 ? `<button class="ordbtn ${S.ordering ? 'on' : ''}" data-act="ordering">${S.ordering ? '✓ 순서 편집 끝' : '↕ 순서 바꾸기'}</button>` : ''}</div>
   ${rows.length ? `<div class="timeline">${rows.map((r) => r.kind === 'flight' ? flightRow(r.f)
     : (!S.ordering && prevOf.has(r.i.id) ? segRow(t, prevOf.get(r.i.id), r.i) : '') + itemRow(t, r.i, pinNo.get(r.i.id), items)).join('')}</div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
@@ -336,18 +336,28 @@ async function loadWeather(t, days) {
 }
 
 /* ---------- 이동 구간 (거리·시간) ---------- */
-const segMode = (t, i) => i.moveMode || t.defaultMove || 'transit';
+// 기본은 '자동': 걸어서 30분 미만이면 도보, 그 이상이면 대중교통. 구간마다 직접 바꿀 수도 있음
+const WALK_LIMIT = 30 * 60;
+const segMode = (t, i) => i.moveMode || 'auto';
 const segKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|');
-const segCache = new Map(); // key -> {meters,secs} | {none} | 'loading' | {err}
+const segCache = new Map(); // key -> {meters,secs,used} | {none} | 'loading' | {err}
+const dirUrl = (from, to, m) => `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[m][3]}`;
+function straightM(a, b) {
+  const R = 6371000, r = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
 function segRow(t, from, to) {
   const mode = segMode(t, to);
-  const dir = `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[mode][3]}`;
+  const r = segResult(from, to, mode);
+  const used = mode === 'auto' ? (r && r.used) || 'transit' : mode;
   return `<div class="seg" data-seg="${esc(to.id)}">
     <select class="segsel" data-act="segmode" data-id="${esc(to.id)}" aria-label="이동 수단">
+      <option value="auto" ${mode === 'auto' ? 'selected' : ''}>✨ 자동</option>
       ${Object.entries(MOVES).map(([k, v]) => `<option value="${k}" ${k === mode ? 'selected' : ''}>${v[0]} ${v[1]}</option>`).join('')}
     </select>
     <span class="seginfo" data-seginfo="${esc(to.id)}">${segText(from, to, mode)}</span>
-    <a class="seglink" href="${esc(dir)}" target="_blank" rel="noopener">길찾기</a>
+    <a class="seglink" data-seglink="${esc(to.id)}" href="${esc(dirUrl(from, to, used))}" target="_blank" rel="noopener">길찾기</a>
   </div>`;
 }
 function segResult(from, to, mode) {
@@ -363,12 +373,26 @@ function segText(from, to, mode) {
   if (r.err) return '<span class="muted">계산 실패</span>';
   if (r.none) {
     // 구글 API가 일부 지역 정보를 안 줌 (예: 일본 대중교통, 한국 도보·차). 길찾기 링크는 구글맵 앱에서 정상 동작
-    const R = 6371000, toR = (x) => (x * Math.PI) / 180;
-    const a = Math.sin(toR(to.lat - from.lat) / 2) ** 2 + Math.cos(toR(from.lat)) * Math.cos(toR(to.lat)) * Math.sin(toR(to.lng - from.lng) / 2) ** 2;
-    const straight = 2 * R * Math.asin(Math.sqrt(a));
-    return `<span class="muted">이 지역은 ${MOVES[mode][1]} 시간 미제공 · 직선 ${fmtDist(straight)} → 길찾기에서 확인</span>`;
+    const m = mode === 'auto' ? 'transit' : mode;
+    return `<span class="muted">이 지역은 ${MOVES[m][1]} 시간 미제공 · 직선 ${fmtDist(straightM(from, to))} → 길찾기에서 확인</span>`;
   }
-  return `<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}`;
+  const icon = mode === 'auto' && r.used ? MOVES[r.used][0] + ' ' : '';
+  const note = r.transitNone ? ' <span class="muted">(대중교통 시간 미제공 → 길찾기)</span>' : '';
+  return `${icon}<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}${note}`;
+}
+async function routeFor(from, to, mode) {
+  const when = from.time || to.time;
+  if (mode !== 'auto') {
+    const r = await computeRoute(from, to, MOVES[mode][2], when);
+    return r?.none ? { none: true } : { ...r, used: mode };
+  }
+  const walk = await computeRoute(from, to, 'WALK', when);
+  if (walk && !walk.none && walk.secs < WALK_LIMIT) return { ...walk, used: 'walk' };
+  const tr = await computeRoute(from, to, 'TRANSIT', when);
+  if (tr && !tr.none) return { ...tr, used: 'transit' };
+  // 대중교통 정보가 없는 지역(일본 등): 도보 시간이라도 보여주기
+  if (walk && !walk.none) return { ...walk, used: 'walk', transitNone: true };
+  return { none: true };
 }
 async function fillSegments(t) {
   if (!mapsEnabled) return;
@@ -377,17 +401,17 @@ async function fillSegments(t) {
     const from = items[k - 1], to = items[k], mode = segMode(t, to);
     if (segResult(from, to, mode)) continue;
     const key = segKey(from, to, mode); segCache.set(key, 'loading');
-    computeRoute(from, to, MOVES[mode][2], from.time || to.time).then((r) => {
-      const res = r?.none ? { none: true } : r;
+    const paint = () => {
+      const el = document.querySelector(`[data-seginfo="${CSS.escape(to.id)}"]`);
+      if (el) el.innerHTML = segText(from, to, mode);
+      const r = segCache.get(key); const a = document.querySelector(`[data-seglink="${CSS.escape(to.id)}"]`);
+      if (a && r && r.used) a.href = dirUrl(from, to, r.used);
+    };
+    routeFor(from, to, mode).then((res) => {
       segCache.set(key, { ...res, key });
       updateDoc(doc(db, 'trips', t.id, 'items', to.id), { move: { ...res, key } }).catch(() => {});
-      const el = document.querySelector(`[data-seginfo="${CSS.escape(to.id)}"]`);
-      if (el) el.innerHTML = segText(from, to, mode);
-    }).catch((e) => {
-      console.error(e); segCache.set(key, { err: true });
-      const el = document.querySelector(`[data-seginfo="${CSS.escape(to.id)}"]`);
-      if (el) el.innerHTML = segText(from, to, mode);
-    });
+      paint();
+    }).catch((e) => { console.error(e); segCache.set(key, { err: true }); paint(); });
   }
 }
 function flightRow(f) {
@@ -404,14 +428,23 @@ function flightRow(f) {
     ${(f.who || []).length ? `<div class="bp-who small">${peopleChips(trip(), f.who)}</div>` : ''}</div></div></div>`;
 }
 function itemRow(t, i, no, list) {
-  const c = ICATS[i.cat] || ICATS.기타;
+  const c = i.kind === 'memo' ? ['#FFF6CC', '#C9A227'] : ICATS[i.cat] || ICATS.기타;
   if (S.ordering) {
     const k = list.findIndex((x) => x.id === i.id);
+    if (i.kind === 'memo') {
+      return `<div class="item ordering memo" style="--cat:${c[1]}"><div class="irow">
+      <div class="itime">📝</div><div style="flex:1;min-width:0"><div class="imemo clamp">${esc(i.memo || '')}</div></div>
+      <div class="ordctl"><button data-act="mv" data-dir="-1" data-id="${esc(i.id)}" ${k === 0 ? 'disabled' : ''} aria-label="위로">▲</button><button data-act="mv" data-dir="1" data-id="${esc(i.id)}" ${k === list.length - 1 ? 'disabled' : ''} aria-label="아래로">▼</button></div>
+    </div></div>`;
+    }
     return `<div class="item ordering" style="--cat:${c[1]}"><div class="irow">
       <div class="itime">${esc(i.time || '—')}</div>
       <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div>${i.time ? '<div class="iaddr">다른 시간 일정을 넘어가면 시간이 지워져요</div>' : '<div class="iaddr">자유롭게 이동</div>'}</div>
       <div class="ordctl"><button data-act="mv" data-dir="-1" data-id="${esc(i.id)}" ${k === 0 ? 'disabled' : ''} aria-label="위로">▲</button><button data-act="mv" data-dir="1" data-id="${esc(i.id)}" ${k === list.length - 1 ? 'disabled' : ''} aria-label="아래로">▼</button></div>
     </div></div>`;
+  }
+  if (i.kind === 'memo') {
+    return `<div class="item memo" style="--cat:${c[1]}" data-act="editMemo" data-id="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
   }
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
     <div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
@@ -731,7 +764,6 @@ function tripForm(t) {
       <label class="f"><span>도착</span><input class="inp" type="date" name="end" value="${esc(t.end)}"></label></div>
     <div class="two"><label class="f"><span>현지 통화</span><select class="inp" name="currency">${CURRENCIES.map((c) => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
       <label class="f"><span id="rateLbl">기본 환율</span><input class="inp" type="number" step="any" inputmode="decimal" name="rate" value="${esc(String(Math.round((Number(t.rate) || 1) * rateUnit(t.currency) * 10000) / 10000))}"><div class="hint" id="rateHint"></div></label></div>
-    <label class="f"><span>장소 사이 기본 이동수단</span>${pills('move', Object.values(MOVES).map((m) => m[0] + ' ' + m[1]), (MOVES[t.defaultMove || 'transit'] || MOVES.transit).slice(0, 2).join(' '))}<div class="hint">일정 화면에서 구간마다 바꿀 수도 있어요.</div></label>
     <label class="f"><span>같이 가는 사람 (정산용, 쉼표로 구분)</span><input class="inp" name="people" value="${esc((t.people || []).join(', '))}" placeholder="예: 진주, 민지, 수아"></label>
     ${isNew ? '' : `<div class="card soft"><h3>동행인 초대</h3>
       <p class="small muted">링크를 받은 사람이 구글 로그인하면 이 여행을 같이 보고 수정할 수 있어요.</p>
@@ -748,11 +780,9 @@ function tripForm(t) {
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('name')) return toast('여행 이름을 적어 주세요');
       let start = v('start'), end = v('end'); if (start && end && end < start) [start, end] = [end, start];
-      const mvLabel = pillVal(sh, 'move')[0] || '';
-      const defaultMove = Object.keys(MOVES).find((k) => MOVES[k].slice(0, 2).join(' ') === mvLabel) || 'transit';
       const data = {
         name: v('name'), city: v('city'), start, end: end || start, currency: v('currency'),
-        rate: (Number(v('rate')) || 1) / rateUnit(v('currency')), defaultMove,
+        rate: (Number(v('rate')) || 1) / rateUnit(v('currency')),
         people: [...new Set(v('people').split(/[,，]/).map((s) => s.trim()).filter(Boolean))],
       };
       if (!isNew && data.city !== t.city) data.geo = null; // 도시 바뀌면 날씨 위치 다시 찾기
@@ -840,6 +870,28 @@ function itemForm(t, item) {
       else await write(() => updateDoc(doc(db, 'trips', t.id, 'items', item.id), data));
     };
     sh.querySelector('[data-x=del]')?.addEventListener('click', () => { closeSheet(); write(() => deleteDoc(doc(db, 'trips', t.id, 'items', item.id))); });
+  });
+}
+
+/* memo (장소·시간 없이 메모만) */
+function memoForm(t, m) {
+  const isNew = !m; const days = tripDays(t);
+  m = m || { date: S.day, memo: '' };
+  openSheet(`<h2>${isNew ? '메모 추가' : '메모 수정'}</h2>
+    <label class="f"><span>메모</span><textarea class="inp" name="memo" rows="5" placeholder="예: 숙소 체크인 15시, 짐 맡기기 / 환전 잊지 말기">${esc(m.memo)}</textarea></label>
+    <label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === m.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
+    <p class="small muted" style="margin:-4px 0 12px">맨 아래에 붙어요. '순서 바꾸기'로 원하는 위치로 옮길 수 있어요.</p>
+    <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
+    const v = fval(sh);
+    setTimeout(() => sh.querySelector('[name=memo]').focus(), 50);
+    sh.querySelector('[data-x=save]').onclick = async () => {
+      if (!v('memo')) return toast('메모를 적어 주세요');
+      const data = { kind: 'memo', memo: v('memo'), date: v('date'), title: '', time: '' };
+      closeSheet(); S.day = data.date;
+      if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'items', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
+      else await write(() => updateDoc(doc(db, 'trips', t.id, 'items', m.id), data));
+    };
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => { closeSheet(); write(() => deleteDoc(doc(db, 'trips', t.id, 'items', m.id))); });
   });
 }
 
@@ -1109,6 +1161,8 @@ document.addEventListener('click', (ev) => {
     case 'day': S.day = el.dataset.v; S.mapAll = false; render(); break;
     case 'newItem': itemForm(t, null); break;
     case 'editItem': ev.stopPropagation(); itemForm(t, S.items.find((i) => i.id === id)); break;
+    case 'newMemo': memoForm(t, null); break;
+    case 'editMemo': memoForm(t, S.items.find((i) => i.id === id)); break;
     case 'focus': { const i = S.items.find((x) => x.id === id); if (i && mapCtl) { mapCtl.focus({ lat: i.lat, lng: i.lng }); window.scrollTo({ top: 0, behavior: 'smooth' }); } break; }
     case 'toggleDone': { ev.stopPropagation(); const i = S.items.find((x) => x.id === id); if (i) write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { done: !i.done })); break; }
     case 'newFlight': flightForm(t, null); break;
