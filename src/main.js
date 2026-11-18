@@ -944,9 +944,7 @@ function segRow(t, from, to, cls = '', label = '') {
   const shown = mode === 'auto' ? autoUsed : mode;
   return `<div class="seg ${cls}" data-seg="${esc(sid)}">
     ${label ? `<span class="seglbl">${esc(label)}</span>` : ''}
-    <select class="segsel" data-act="segmode" data-id="${esc(sid)}" data-auto="${esc(autoUsed || '')}" aria-label="이동 수단">
-      ${Object.entries(MOVES).map(([k, v]) => `<option value="${k}" ${k === shown ? 'selected' : ''}>${v[0]} ${cls ? '' : v[1]}</option>`).join('')}
-    </select>
+    <button type="button" class="segsel" data-act="segpick" data-id="${esc(sid)}" data-auto="${esc(autoUsed || '')}" data-v="${esc(shown)}" aria-label="이동 수단 바꾸기">${MOVES[shown][0]}${cls ? '' : ` <span>${MOVES[shown][1]}</span>`}<i class="ti-caret">▾</i></button>
     <span class="seginfo" data-seginfo="${esc(sid)}">${segText(from, to, mode)}</span>
     ${shown === 'drive' ? `<button type="button" class="taxibtn" data-act="taxi" data-id="${esc(sid)}">🚕 택시</button>` : ''}
     <a class="seglink" data-seglink="${esc(sid)}" href="${esc(dirUrl(from, to, shown))}" target="_blank" rel="noopener">길찾기</a>
@@ -1003,7 +1001,12 @@ async function fillSegments(t) {
       const r = segCache.get(key);
       document.querySelectorAll(`[data-seginfo="${q}"]`).forEach((el) => { el.innerHTML = segText(from, to, mode); });
       document.querySelectorAll(`[data-seglink="${q}"]`).forEach((a) => { if (r && r.used) a.href = dirUrl(from, to, r.used); });
-      document.querySelectorAll(`.segsel[data-id="${q}"]`).forEach((sel) => { if (mode === 'auto' && r && r.used) { sel.value = r.used; sel.dataset.auto = r.used; } });
+      document.querySelectorAll(`.segsel[data-id="${q}"]`).forEach((sel) => {
+        if (mode === 'auto' && r && r.used) {
+          sel.dataset.v = r.used; sel.dataset.auto = r.used;
+          const small = !sel.querySelector('span'); sel.innerHTML = `${MOVES[r.used][0]}${small ? '' : ` <span>${MOVES[r.used][1]}</span>`}<i class="ti-caret">▾</i>`;
+        }
+      });
       refreshDaySum();
     };
     routeFor(from, to, mode).then((res) => {
@@ -1092,7 +1095,7 @@ function itemRow(t, i, no, list) {
       ${i.address ? `<div class="iaddr">${esc(i.address)}</div>` : ''}
       ${i.memo ? `<div class="imemo">${esc(i.memo)}</div>` : ''}
       ${itemSpendHtml(t, i)}
-      <div class="iactions"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(i.cat || '기타')}</span>
+      <div class="iactions"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(catLabel(i.cat || '기타'))}</span>
         ${i.cat !== '이동' ? `<a class="lnk map" href="${esc(placeUrl(t, i))}" target="_blank" rel="noopener">구글맵</a>` : ''}
         ${i.link ? `<a class="lnk" href="${esc(i.link)}" target="_blank" rel="noopener">링크</a>` : ''}
         <button class="lnk" data-act="toggleDone" data-id="${esc(i.id)}">${i.done ? '되돌리기' : '완료'}</button>
@@ -1127,6 +1130,8 @@ function showMap(on) { $('mapwrap').hidden = !on; }
 
 /* ---------- 찜 (일정에 안 넣고 모아두는 곳) ---------- */
 const WCATS = ['맛집', '카페', '쇼핑', '관광', '숙소', '기타'];
+const CAT_EMOJI = { 관광: '📸', 맛집: '🍜', 카페: '☕', 쇼핑: '🛍️', 숙소: '🏨', 이동: '🚌', 기타: '📌', 식비: '🍽️', 교통: '🚇', 항공: '✈️' };
+const catLabel = (c) => `${CAT_EMOJI[c] ? CAT_EMOJI[c] + ' ' : ''}${c}`;
 const SPEND_CAT = { 맛집: '식비', 카페: '식비', 쇼핑: '쇼핑', 관광: '관광', 숙소: '숙소', 이동: '교통', 기타: '기타' };
 function viewWish(t) {
   const all = [...S.places].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -1142,7 +1147,7 @@ function viewWish(t) {
       const added = p.addedTo && S.items.some((i) => i.id === p.addedTo.itemId);
       const dayNo = added ? days.indexOf(p.addedTo.date) + 1 : 0;
       return `<div class="wish ${added ? 'added' : ''}" style="--cat:${c[1]}" ${ll(p) ? `data-act="focusWish" data-id="${esc(p.id)}"` : ''}>
-        <div class="wt"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(p.cat || '기타')}</span>${esc(p.name)}${added ? `<span class="addedtag">${dayNo > 0 ? 'Day ' + dayNo : '일정'}에 추가됨</span>` : ''}</div>
+        <div class="wt"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(catLabel(p.cat || '기타'))}</span>${esc(p.name)}${added ? `<span class="addedtag">${dayNo > 0 ? 'Day ' + dayNo : '일정'}에 추가됨</span>` : ''}</div>
         ${p.by ? `<div class="wby">${avatar(p.by, 18, t.memberNames?.[p.by])}<span>${esc(nameOf(t, p.by))} 찜</span></div>` : ''}
         ${p.address ? `<div class="iaddr">${esc(p.address)}</div>` : ''}
         ${p.memo ? `<div class="imemo">${esc(p.memo)}</div>` : ''}
@@ -1406,7 +1411,7 @@ function viewMoney(t) {
     ${es.map((e) => {
       const col = ECATS[e.cat] || '#888'; const local = e.cur !== 'KRW' && t.currency && t.currency !== 'KRW';
       return `<button class="exp" data-act="editExp" data-id="${esc(e.id)}">
-        <div class="ico" style="background:${col}22;color:${col}">${esc((e.cat || '기타').slice(0, 2))}</div>
+        <div class="ico" style="background:${col}1F;color:${col}">${CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
         <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${esc(e.payer || '?')} 결제 · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
         <div class="amt">${local ? `${num(e.amount)} ${esc(t.currency)}<small>${won(toKRW(t, e))}</small>` : won(e.amount)}</div></button>`;
     }).join('')}`).join('')
@@ -1461,7 +1466,8 @@ function askConfirm(msg, okLabel, fn) {
   });
 }
 function pills(name, opts, sel, multi) {
-  return `<div class="pills" data-pills="${name}" data-multi="${multi ? 1 : 0}">${opts.map((o) => `<button type="button" class="pill ${(multi ? sel.includes(o) : sel === o) ? 'on' : ''}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>`;
+  const lbl = name === 'cat' ? catLabel : (o) => o;
+  return `<div class="pills" data-pills="${name}" data-multi="${multi ? 1 : 0}">${opts.map((o) => `<button type="button" class="pill ${(multi ? sel.includes(o) : sel === o) ? 'on' : ''}" data-v="${esc(o)}">${esc(lbl(o))}</button>`).join('')}</div>`;
 }
 function wirePills(sh) {
   sh.querySelectorAll('[data-pills]').forEach((g) => g.addEventListener('click', (e) => {
@@ -2007,6 +2013,7 @@ document.addEventListener('click', (ev) => {
     case 'account': accountSheet(); break;
     case 'newTrip': tripForm(null); break;
     case 'guide': guideSheet(); break;
+    case 'segpick': ev.stopPropagation(); openSegPicker(el); break;
     case 'checkFlight': checkFlight(t, id, el); break;
     case 'taxi': { ev.stopPropagation(); const sg = stopMap.get(id); if (sg) taxiSheet(sg.from, sg.to); break; }
     case 'hideInstall': lsSet('tn_install_hide', '1'); render(); break;
@@ -2051,20 +2058,41 @@ document.addEventListener('click', (ev) => {
   }
 }, true);
 
-document.addEventListener('change', (ev) => {
+/** 이동 수단 고르기: 버튼 아래 유리 느낌 선택창 */
+function closeSegPop() { document.getElementById('segpop')?.remove(); }
+function openSegPicker(btn) {
+  closeSegPop();
+  const sid = btn.dataset.id; const sg = stopMap.get(sid); if (!sg) return;
+  const cur = btn.dataset.v, auto = btn.dataset.auto;
+  const pop = document.createElement('div'); pop.id = 'segpop'; pop.className = 'segpop'; pop.setAttribute('role', 'menu');
+  pop.innerHTML = `<div class="sp-h">어떻게 갈까요?</div>${Object.entries(MOVES).map(([k, v]) => {
+    const r = segResult(sg.from, sg.to, k) || (k === auto ? segResult(sg.from, sg.to, 'auto') : null);
+    const info = r && r.secs && !r.none ? `${fmtDur(r.secs)} · ${fmtDist(r.meters)}` : '';
+    return `<button type="button" class="sp-row ${k === cur ? 'on' : ''}" data-mode="${k}" role="menuitem"><span class="sp-e">${v[0]}</span><span class="sp-l">${v[1]}${k === auto ? '<em>추천</em>' : ''}</span><span class="sp-i">${info}</span>${k === cur ? '<span class="sp-c">✓</span>' : ''}</button>`;
+  }).join('')}`;
+  document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect(); const w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.min(Math.max(12, r.left), innerWidth - w - 12);
+  const below = r.bottom + 8 + h < innerHeight;
+  pop.style.left = `${left}px`; pop.style.top = `${(below ? r.bottom + 8 : r.top - h - 8) + scrollY}px`;
+  pop.classList.toggle('up', !below);
+  pop.addEventListener('click', (e) => {
+    const row = e.target.closest('.sp-row'); if (!row) return;
+    closeSegPop(); applySegMode(sid, row.dataset.mode, auto);
+  });
+  setTimeout(() => document.addEventListener('click', function off(e) { if (!e.target.closest('#segpop')) { closeSegPop(); document.removeEventListener('click', off, true); } }, true), 0);
+}
+// 알아서 고른 수단과 같은 걸 고르면 계속 자동, 다른 걸 고르면 그 구간만 고정
+function applySegMode(sid, value, auto) {
   const t = trip(); if (!t) return;
-  const sel = ev.target.closest('.segsel');
-  if (sel) {
-    const id = sel.dataset.id;
-    // 알아서 고른 수단과 같은 걸 고르면 계속 자동, 다른 걸 고르면 그 구간만 고정
-    const mm = sel.value === sel.dataset.auto ? null : sel.value;
-    const st = stopMap.get(id)?.to; if (!st) return;
-    const src = st._col === 'items' ? S.items.find((x) => x.id === st._doc) : S.flights.find((x) => x.id === st._doc);
-    if (src) src[st._mmk] = mm; // 즉시 반영
-    write(() => updateDoc(doc(db, 'trips', t.id, st._col, st._doc), { [st._mmk]: mm }));
-    render();
-  }
-});
+  const mm = value === auto ? null : value;
+  const st = stopMap.get(sid)?.to; if (!st) return;
+  const src = st._col === 'items' ? S.items.find((x) => x.id === st._doc) : S.flights.find((x) => x.id === st._doc);
+  if (src) src[st._mmk] = mm; // 즉시 반영
+  write(() => updateDoc(doc(db, 'trips', t.id, st._col, st._doc), { [st._mmk]: mm }));
+  render();
+}
+window.addEventListener('scroll', closeSegPop, { passive: true });
 
 window.addEventListener('scroll', () => $('hdr')?.classList.toggle('scrolled', scrollY > 4), { passive: true });
 render();
