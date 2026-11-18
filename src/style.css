@@ -650,3 +650,124 @@ input[type=date].inp{background:var(--fill);height:50px}
 .item.dragging,.mini.dragging{box-shadow:0 16px 36px rgba(0,20,60,.22);opacity:.97;transition:none}
 .lane .dragph{border-radius:12px;margin-bottom:6px}
 .ckbtn{background:var(--ink)!important;color:#fff!important}
+
+/* ================================================================
+   여백 + 브랜드 (2026-11-19)
+   브랜드: 여행노트 블루 #2E5BFF, 출발점 코랄 #FF7A59, '점선 항로' 모티프.
+   글자는 한 단계 작게, 면 사이 간격은 넉넉하게.
+   ================================================================ */
+:root{--accent:#2E5BFF;--sky:#2E5BFF;--blue-soft:#EEF2FF;--coral:#FF7A59}
+html,body{font-size:14px}
+.wrap{padding:8px 20px}
+header{padding:calc(16px + var(--st)) 20px 10px;min-height:58px}
+header h1{font-size:18px;font-weight:700}
+.iconbtn{width:36px;height:36px}.iconbtn svg{width:18px;height:18px}
+
+/* 브랜드 워드마크 */
+.brand{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:800;letter-spacing:-.03em}
+.brand-mark{width:28px;height:28px;flex:none;line-height:0}
+.brand-mark svg{width:28px;height:28px}
+.login .logo{background:none;width:76px;height:76px;border-radius:0}
+.login .logo svg{width:76px;height:76px;transform:none}
+
+/* 홈 */
+.ticket{padding:22px 22px;margin-bottom:12px}
+.ticket .city{font-size:12px}
+.ticket .name{font-size:16px;font-weight:700;margin:3px 0 6px}
+.ticket .small{font-size:12px}
+.ticket .dd b{font-size:22px;font-weight:800}
+.installcard{padding:14px 16px;margin-bottom:16px}
+.installcard b{font-size:13px}.installcard span{font-size:11px}
+
+/* 지도 · 정보 줄 · 탭 */
+#mapwrap{margin:0 20px 16px}
+#map{height:min(30vh,240px)}
+.mapbtn{font-size:11px;padding:6px 11px}
+.tripmeta{margin-bottom:14px;gap:6px}
+.chip{font-size:12px;padding:5px 11px}
+.tabs{margin-bottom:18px;top:calc(58px + var(--st))}
+.tabs button{font-size:14px;padding:11px 0 10px}
+
+/* 날짜 · 날씨 · 요약 */
+.days{gap:8px;margin-bottom:14px}
+.day{padding:9px 12px 12px;min-width:64px;border-radius:14px}
+.day b{font-size:12px;font-weight:700}
+.day span,.dwx{font-size:10px}
+.wxbar{padding:12px 16px;margin-bottom:12px;gap:10px}
+.wxbar b{font-size:13px}.wxbar span{font-size:11px}
+.wxe{font-size:20px}
+.daysum{background:#fff;border-radius:18px;padding:14px 6px;gap:0;margin-bottom:18px}
+.daysum>div{background:transparent!important;padding:0 4px!important;border-radius:0!important;gap:2px}
+.daysum>div+div{box-shadow:-1px 0 0 var(--fill)}
+.daysum span{font-size:13px}
+.daysum b{font-size:14px;font-weight:800}
+.daysum i{font-size:10px}
+.planbar{margin:0 0 12px}
+.ordbtn{font-size:11px;padding:7px 12px}
+.lphint{font-size:11px}
+
+/* 타임라인: 점선 항로 */
+.timeline{border-left:0;padding-left:22px;margin-left:4px;background:linear-gradient(var(--fill2) 50%,transparent 0) 5px 0/2px 8px repeat-y}
+.item{padding:16px 18px;margin-bottom:14px;border-radius:18px}
+.item::before{left:-22px;top:19px;width:12px;height:12px;border-width:2.5px}
+.irow{gap:12px}
+.itime{font-size:13px;font-weight:700;min-width:44px;padding-top:2px}
+.tbtn{font-size:13px;padding:3px 7px}
+.ititle{font-size:15px;font-weight:700}
+.iaddr{font-size:12px;margin-top:2px}
+.imemo{font-size:12px;margin-top:6px}
+.pinno{min-width:18px;height:18px;font-size:10px}
+/* 카드 안 버튼: 알약 대신 가벼운 글자 링크 */
+.item .iactions{gap:14px;margin-top:12px;align-items:center}
+.item .tag{font-size:10px;padding:2px 7px}
+.item .lnk{background:none;padding:2px 0;font-size:12px;font-weight:600;color:var(--ink2);border-radius:0}
+.item .lnk.map{background:none;color:var(--accent)}
+.ispend{font-size:11px;margin-top:8px}
+/* 이동 구간 */
+.seg{font-size:11px;margin:-4px 0 10px;gap:6px}
+.seg::before{display:none}
+.segsel{font-size:11px;padding:3px 9px}
+.seglink{font-size:11px}
+/* 갈래 */
+.forkhead{font-size:12px;margin-bottom:10px}
+.vabtns{margin-bottom:10px}.vab{font-size:11px}
+.lanes{gap:10px}
+.lane{padding:10px;border-radius:16px}
+.lane h4{font-size:11px;margin-bottom:10px}
+.mini{padding:10px;margin-bottom:8px}
+.mini b{font-size:12px}
+.meet{font-size:12px;padding:10px 12px;margin:4px 0 14px}
+
+/* 버튼 · FAB · 시트 */
+.btn{font-size:14px;padding:13px 16px;border-radius:14px}
+.fab{font-size:14px;padding:13px 20px;border-radius:16px}
+.sheet{padding:24px 22px calc(28px + var(--sb))}
+.sheet h2{font-size:18px;margin-bottom:18px}
+.f{margin-bottom:16px}
+.f>span,.flbl{font-size:12px;margin-bottom:7px}
+.inp{font-size:15px;padding:12px 14px}
+input[type=date].inp{height:46px}
+.pill{font-size:12px;padding:7px 12px}
+.hint{font-size:11px}
+
+/* 항공권 */
+.boarding{padding:20px 20px 18px;margin-bottom:14px}
+.bp-route b{font-size:24px}
+.bp-route span{font-size:11px}
+.bp-info b{font-size:13px}
+.boarding .iactions{gap:8px;margin-top:14px}
+.boarding .lnk{font-size:12px}
+.live-h{font-size:13px}.live-g b{font-size:15px}
+
+/* 가계부 · 정산 · 찜 · 카드 */
+.sum{padding:20px 22px;margin-bottom:18px}
+.sum .lbl{font-size:12px}
+.sum .big{font-size:26px}
+.sum .legend{font-size:11px}
+.dategrp{font-size:12px;margin:22px 4px 10px}
+.exp{padding:14px 16px;margin-bottom:10px}
+.exp .t{font-size:14px}.exp .s{font-size:11px}
+.exp .amt{font-size:14px}
+.card{padding:18px 20px;margin-bottom:14px}
+.card h3{font-size:13px}
+.wish{padding:16px 18px;margin-bottom:12px}

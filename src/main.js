@@ -157,6 +157,7 @@ async function write(fn) {
 const I = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+  logo: '<svg viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#2E5BFF"/><path d="M13 35C15 24 22 17 31 14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-dasharray=".1 5.2"/><circle cx="12.5" cy="35.5" r="3.6" fill="#FF7A59"/><g transform="translate(29 5) scale(.62) rotate(62 12 12)"><path fill="#fff" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></g></svg>',
   plane: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
 };
@@ -173,7 +174,7 @@ function viewLogin() {
   showMap(false); $('hdr').innerHTML = ''; $('fabhost').innerHTML = ''; $('banner').innerHTML = '';
   $('view').innerHTML = `
     <div class="login">
-      <div class="logo">${I.plane}</div>
+      <div class="logo">${I.logo}</div>
       <h1>여행노트</h1>
       <p class="muted">일정·지도·항공권·가계부를 한 곳에서.<br>동행인과 같이 보고 같이 고쳐요.</p>
       ${pendingJoin ? '<p class="invite-note">초대받은 여행이 있어요. 로그인하면 바로 참여돼요.</p>' : ''}
@@ -237,7 +238,7 @@ function guideSheet() {
 }
 function viewHome() {
   showMap(false); $('banner').innerHTML = '';
-  $('hdr').innerHTML = `<h1>여행노트</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
+  $('hdr').innerHTML = `<h1 class="brand"><span class="brand-mark">${I.logo}</span>여행노트</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
   const list = [...S.trips].sort((a, b) => (b.start || '').localeCompare(a.start || ''));
   const up = list.filter((t) => dday(t) !== '완료'), past = list.filter((t) => dday(t) === '완료');
   const card = (t) => `<button class="ticket" data-act="open" data-id="${esc(t.id)}">
