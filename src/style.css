@@ -771,3 +771,32 @@ input[type=date].inp{height:46px}
 .card{padding:18px 20px;margin-bottom:14px}
 .card h3{font-size:13px}
 .wish{padding:16px 18px;margin-bottom:12px}
+
+/* ---- 정렬·굵기 다듬기 (2026-11-19) ---- */
+*::before,*::after{box-sizing:border-box}
+header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none}
+.tabs{background:var(--paper)}
+/* 타임라인 선 하나 = x 8px 중심. 점·갈래 표시도 같은 중심 */
+.timeline{position:relative;background:none;padding-left:24px;margin-left:2px}
+.timeline::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;border-left:2px dotted #C5CCD6}
+.item::before{left:-23px;top:18px;width:14px;height:14px;border-width:3px}
+.fork{margin-left:-24px;padding-left:24px}
+.forkhead::before{width:14px;height:14px;margin-left:-23px;margin-right:9px;border-width:2px}
+/* 날짜 아래 색 점 */
+.day::after{width:6px;height:6px;margin-left:-3px;bottom:5px}
+/* 제목이 두 줄이어도 번호는 첫 줄에 */
+.ititle{align-items:flex-start;line-height:1.45}
+.ititle .pinno{margin-top:2px}
+/* 굵기: 숫자만 진하게, 이름은 보통 */
+.ititle{font-weight:600}
+.ticket .name{font-weight:600}
+.day b{font-weight:600}
+.chip{font-weight:500}
+.mini b{font-weight:500}
+.lane h4,.vab,.forkhead,.meet{font-weight:600}
+.segsel,.seginfo b{font-weight:600}
+.exp .t,.wish .wt,.xfer{font-weight:600}
+.tabs button{font-weight:600}
+.sheet h2,.rc-hero h1{font-weight:700}
+.bp-type{font-weight:700}
+.daysum b,.itime,.sum .big,.bp-route b,.exp .amt,.ticket .dd b{font-weight:700}
