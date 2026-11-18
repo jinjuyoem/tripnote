@@ -6,6 +6,7 @@ import {
 } from './firebase.js';
 import { createMap, mountPlaceSearch, mapsEnabled, computeRoute } from './maps.js';
 import { tripWeather, geocodeCity } from './weather.js';
+import { openTimeWheel, timeField, wireTimeFields } from './timewheel.js';
 import {
   esc, uid, randCode, won, num, md, hm, parseD, fmtD, tripDays, dday,
   ICATS, ECATS, DAYCOLORS, CURRENCIES, toast, copy,
@@ -16,7 +17,7 @@ import {
 const S = {
   user: null, authReady: false,
   trips: [], tripsLoaded: false,
-  tripId: null, items: [], expenses: [], flights: [],
+  tripId: null, items: [], expenses: [], flights: [], places: [], wishCat: 'all', ordering: false,
   tab: 'plan', day: null, mapAll: false,
   unsubTrips: null, unsubSub: [], unsubMe: null,
   profiles: new Map(), // uid -> {name, photo}
@@ -118,13 +119,13 @@ async function joinTrip(code) {
 /* ---------------- subscriptions ---------------- */
 function openTrip(id) {
   S.unsubSub.forEach((f) => f()); S.unsubSub = [];
-  S.items = []; S.expenses = []; S.flights = [];
-  S.tripId = id; S.day = null; S.mapAll = false;
+  S.items = []; S.expenses = []; S.flights = []; S.places = [];
+  S.tripId = id; S.day = null; S.mapAll = false; S.ordering = false; S.wishCat = 'all';
   if (id) {
     const sub = (name) => onSnapshot(collection(db, 'trips', id, name), (s) => {
       S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() })); render();
     }, (e) => console.error(name, e));
-    S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'));
+    S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'), sub('places'));
     const t = trip(); if (t) loadProfiles(t.members || []);
   }
   render(); window.scrollTo(0, 0);
@@ -189,9 +190,10 @@ function viewTrip(t) {
   $('hdr').innerHTML = `<button class="iconbtn" data-act="home" aria-label="뒤로">${I.back}</button><h1>${esc(t.name)}</h1>
     <button class="iconbtn" data-act="editTrip" aria-label="설정">${I.gear}</button>`;
   $('banner').innerHTML = '';
-  const tabs = [['plan', '일정'], ['flight', '항공권'], ['money', '가계부'], ['settle', '정산']];
+  const tabs = [['plan', '일정'], ['wish', '찜'], ['flight', '항공'], ['money', '가계부'], ['settle', '정산']];
   let body = '';
   if (S.tab === 'plan') body = viewPlan(t, days);
+  else if (S.tab === 'wish') body = viewWish(t);
   else if (S.tab === 'flight') body = viewFlights(t);
   else if (S.tab === 'money') body = viewMoney(t);
   else body = viewSettle(t);
@@ -204,16 +206,55 @@ function viewTrip(t) {
     </div>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('')}</div>
     ${body}</div>`;
-  const fab = { plan: ['newItem', '+ 일정 추가'], flight: ['newFlight', '+ 항공권 추가'], money: ['newExp', '+ 지출 추가'] }[S.tab];
-  $('fabhost').innerHTML = fab ? `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>` : '';
-  if (S.tab === 'plan') { drawPlanMap(t, days); fillSegments(t); loadWeather(t, days); } else showMap(false);
+  const fab = { plan: ['newItem', '+ 일정 추가'], wish: ['newWish', '+ 찜하기'], flight: ['newFlight', '+ 항공권 추가'], money: ['newExp', '+ 지출 추가'] }[S.tab];
+  $('fabhost').innerHTML = fab && !(S.tab === 'plan' && S.ordering) ? `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>` : '';
+  if (S.tab === 'plan') { drawPlanMap(t, days); fillSegments(t); loadWeather(t, days); }
+  else if (S.tab === 'wish') drawWishMap(t);
+  else showMap(false);
   if (S.tab === 'flight') loadQrThumbs(t);
 }
 
 /* ---------- plan ---------- */
-function dayItems(d) {
-  return S.items.filter((i) => i.date === d)
-    .sort((a, b) => (a.time || '99').localeCompare(b.time || '99') || (a.createdAt || 0) - (b.createdAt || 0));
+// 정렬: 시간 있는 일정은 시간 순. 시간 없는 일정은 'after'(어느 시간 뒤에 둘지) + order로 자유 배치
+const ordOf = (i) => (i.order ?? i.createdAt ?? 0);
+const sortKey = (i) => (i.time ? [i.time, 0, ordOf(i)] : [i.after ?? '99:99', 1, ordOf(i)]);
+function cmpItems(a, b) {
+  const x = sortKey(a), y = sortKey(b);
+  return x[0].localeCompare(y[0]) || x[1] - y[1] || x[2] - y[2];
+}
+function dayItems(d) { return S.items.filter((i) => i.date === d).sort(cmpItems); }
+
+async function moveItem(t, id, dir) {
+  const list = dayItems(S.day); const k = list.findIndex((i) => i.id === id);
+  const cur = list[k], nb = list[k + dir]; if (!cur || !nb) return;
+  const ref = (i) => doc(db, 'trips', t.id, 'items', i.id);
+  if (cur.time) {
+    if (nb.time === cur.time) {
+      return write(async () => { await updateDoc(ref(cur), { order: ordOf(nb) }); await updateDoc(ref(nb), { order: ordOf(cur) }); });
+    }
+    return toast('시간이 있는 일정은 시간 순서가 우선이에요. 시간을 바꾸거나 지워 주세요.');
+  }
+  let after, order;
+  if (!nb.time) {
+    // 시간 없는 일정끼리: 같은 자리 그룹에서 앞뒤로
+    after = nb.after ?? '99:99';
+    const beyond = list[k + 2 * dir];
+    const sameGroup = beyond && !beyond.time && (beyond.after ?? '99:99') === after;
+    order = sameGroup ? (ordOf(nb) + ordOf(beyond)) / 2 : ordOf(nb) + dir;
+  } else if (dir > 0) {
+    // 시간 있는 일정 아래로 넘어가기 → 그 시간 바로 뒤 첫 번째
+    after = nb.time;
+    const grp = list.filter((i) => !i.time && (i.after ?? '99:99') === after);
+    order = grp.length ? Math.min(...grp.map(ordOf)) - 1 : Date.now();
+  } else {
+    // 시간 있는 일정 위로 넘어가기 → 그 앞 시간 그룹 맨 뒤 (맨 위면 '')
+    const prevTimed = list.slice(0, k + dir).reverse().find((i) => i.time);
+    after = prevTimed ? prevTimed.time : '';
+    const grp = list.filter((i) => !i.time && i.id !== cur.id && (i.after ?? '99:99') === after);
+    order = grp.length ? Math.max(...grp.map(ordOf)) + 1 : Date.now();
+  }
+  Object.assign(cur, { after, order }); render(); // 바로 반영
+  write(() => updateDoc(ref(cur), { after, order }));
 }
 function dayFlights(d) {
   const out = [];
@@ -240,7 +281,12 @@ function viewPlan(t, days) {
   const rows = [
     ...fls.map((f) => ({ kind: 'flight', time: f.time, f })),
     ...items.map((i) => ({ kind: 'item', time: i.time, i })),
-  ].sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+  ].sort((a, b) => {
+    // 항공편은 시간 기준, 일정은 수동 순서(시간 우선) 그대로
+    const ka = a.kind === 'flight' ? [a.time || '99:99', -1, 0] : sortKey(a.i);
+    const kb = b.kind === 'flight' ? [b.time || '99:99', -1, 0] : sortKey(b.i);
+    return ka[0].localeCompare(kb[0]) || ka[1] - kb[1] || ka[2] - kb[2];
+  });
   let n = 0;
   const pinNo = new Map(); items.forEach((i) => { if (ll(i)) pinNo.set(i.id, ++n); });
   // 위치 있는 장소끼리 바로 앞 장소 → 이 장소 구간
@@ -254,8 +300,9 @@ function viewPlan(t, days) {
   }).join('')}</div>
   ${wx ? `<div class="wxbar ${wx.kind}"><span class="wxe">${wx.emoji}</span><div><b>${esc(wx.text || '')} ${Math.round(wx.max)}° / ${Math.round(wx.min)}°</b>
       <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
+  ${items.length > 1 ? `<div class="planbar"><button class="ordbtn ${S.ordering ? 'on' : ''}" data-act="ordering">${S.ordering ? '✓ 순서 편집 끝' : '↕ 순서 바꾸기'}</button></div>` : ''}
   ${rows.length ? `<div class="timeline">${rows.map((r) => r.kind === 'flight' ? flightRow(r.f)
-    : (prevOf.has(r.i.id) ? segRow(t, prevOf.get(r.i.id), r.i) : '') + itemRow(t, r.i, pinNo.get(r.i.id))).join('')}</div>`
+    : (!S.ordering && prevOf.has(r.i.id) ? segRow(t, prevOf.get(r.i.id), r.i) : '') + itemRow(t, r.i, pinNo.get(r.i.id), items)).join('')}</div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
 }
 
@@ -346,10 +393,18 @@ function flightRow(f) {
     <div style="flex:1;min-width:0"><div class="ititle">${title}</div>
     <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div></div></div></div>`;
 }
-function itemRow(t, i, no) {
+function itemRow(t, i, no, list) {
   const c = ICATS[i.cat] || ICATS.기타;
+  if (S.ordering) {
+    const k = list.findIndex((x) => x.id === i.id);
+    return `<div class="item ordering" style="--cat:${c[1]}"><div class="irow">
+      <div class="itime">${esc(i.time || '—')}</div>
+      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div>${i.time ? '<div class="iaddr">시간 순 고정</div>' : '<div class="iaddr">자유롭게 이동</div>'}</div>
+      <div class="ordctl"><button data-act="mv" data-dir="-1" data-id="${esc(i.id)}" ${k === 0 ? 'disabled' : ''} aria-label="위로">▲</button><button data-act="mv" data-dir="1" data-id="${esc(i.id)}" ${k === list.length - 1 ? 'disabled' : ''} aria-label="아래로">▼</button></div>
+    </div></div>`;
+  }
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
-    <div class="irow"><label class="itime ${i.time ? '' : 'empty'}" data-act="noop"><input type="time" class="time-in" data-time="${esc(i.id)}" value="${esc(i.time || '')}" aria-label="시간 변경"><span>${esc(i.time || '시간')}</span></label>
+    <div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
       <div style="flex:1;min-width:0"><div class="ititle">${no ? `<span class="pinno" style="background:${c[1]}">${no}</span>` : ''}${esc(i.title)}</div>
       ${i.address ? `<div class="iaddr">${esc(i.address)}</div>` : ''}
       ${i.memo ? `<div class="imemo">${esc(i.memo)}</div>` : ''}
@@ -380,11 +435,119 @@ async function drawPlanMap(t, days) {
   }
   const n = ctl.draw(groups);
   if (!n) ctl.centerOn(t.city);
-  $('mapToggle').textContent = S.mapAll ? '이 날만 보기' : '전체 일정 보기';
+  $('mapToggle').hidden = false; $('mapToggle').textContent = S.mapAll ? '이 날만 보기' : '전체 일정 보기';
   const r = routeUrl(t, dayItems(S.day));
   $('routeLink').hidden = !r || S.mapAll; if (r) $('routeLink').href = r;
 }
 function showMap(on) { $('mapwrap').hidden = !on; }
+
+/* ---------- 찜 (일정에 안 넣고 모아두는 곳) ---------- */
+const WCATS = ['맛집', '카페', '쇼핑', '관광', '숙소', '기타'];
+function viewWish(t) {
+  const all = [...S.places].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const cnt = (c) => all.filter((p) => (p.cat || '기타') === c).length;
+  const list = S.wishCat === 'all' ? all : all.filter((p) => (p.cat || '기타') === S.wishCat);
+  const days = tripDays(t);
+  return `<div class="wishfilter">
+      <button class="pill ${S.wishCat === 'all' ? 'on' : ''}" data-act="wishcat" data-v="all">전체 ${all.length}</button>
+      ${WCATS.filter((c) => cnt(c)).map((c) => `<button class="pill ${S.wishCat === c ? 'on' : ''}" data-act="wishcat" data-v="${c}">${c} ${cnt(c)}</button>`).join('')}
+    </div>
+    ${list.length ? list.map((p) => {
+      const c = ICATS[p.cat] || ICATS.기타;
+      const added = p.addedTo && S.items.some((i) => i.id === p.addedTo.itemId);
+      const dayNo = added ? days.indexOf(p.addedTo.date) + 1 : 0;
+      return `<div class="wish ${added ? 'added' : ''}" style="--cat:${c[1]}" ${ll(p) ? `data-act="focusWish" data-id="${esc(p.id)}"` : ''}>
+        <div class="wt"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(p.cat || '기타')}</span>${esc(p.name)}${added ? `<span class="addedtag">${dayNo > 0 ? 'Day ' + dayNo : '일정'}에 추가됨</span>` : ''}</div>
+        ${p.address ? `<div class="iaddr">${esc(p.address)}</div>` : ''}
+        ${p.memo ? `<div class="imemo">${esc(p.memo)}</div>` : ''}
+        <div class="iactions">
+          <button class="lnk map" data-act="toPlan" data-id="${esc(p.id)}">📅 일정에 넣기</button>
+          <a class="lnk" href="${esc(placeUrl(t, { title: p.name, placeId: p.placeId }))}" target="_blank" rel="noopener">구글맵</a>
+          ${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener">링크</a>` : ''}
+          <button class="lnk" data-act="editWish" data-id="${esc(p.id)}">수정</button>
+        </div></div>`;
+    }).join('') : `<div class="empty"><b>${S.wishCat === 'all' ? '찜한 곳이 없어요' : S.wishCat + ' 찜이 없어요'}</b>가보고 싶은 맛집·카페·쇼핑 장소를 모아두고<br>날짜가 정해지면 일정으로 옮겨 보세요.</div>`}`;
+}
+async function drawWishMap(t) {
+  if (!mapsEnabled) return showMap(false);
+  showMap(true);
+  const ctl = await ensureMap(); if (!ctl) return showMap(false);
+  const ps = S.places.filter((p) => ll(p) && (S.wishCat === 'all' || (p.cat || '기타') === S.wishCat));
+  const groups = WCATS.map((c) => ({
+    color: (ICATS[c] || ICATS.기타)[1], path: false,
+    points: ps.filter((p) => (p.cat || '기타') === c).map((p) => ({ lat: p.lat, lng: p.lng, label: c[0], title: p.name })),
+  }));
+  if (!ctl.draw(groups)) ctl.centerOn(t.city);
+  $('mapToggle').hidden = true; $('routeLink').hidden = true;
+}
+function wishForm(t, p) {
+  const isNew = !p;
+  p = p || { name: '', cat: S.wishCat !== 'all' ? S.wishCat : '맛집', memo: '', link: '' };
+  let picked = p.lat != null ? { lat: p.lat, lng: p.lng, address: p.address || '', placeId: p.placeId || null } : null;
+  openSheet(`<h2>${isNew ? '찜하기' : '찜 수정'}</h2>
+    ${mapsEnabled ? '<label class="f"><span>장소 검색</span><div id="placeBox" class="placebox"><div class="small muted">검색창 불러오는 중…</div></div></label>' : ''}
+    <div id="pickedBox"></div>
+    <label class="f"><span>이름</span><input class="inp" name="name" value="${esc(p.name)}" placeholder="예: 이치란 라멘 도톤보리점"></label>
+    <label class="f"><span>분류</span>${pills('cat', WCATS, p.cat || '기타')}</label>
+    <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="추천 메뉴, 웨이팅, 영업시간…">${esc(p.memo)}</textarea></label>
+    <label class="f"><span>링크 (블로그·인스타 등)</span><input class="inp" name="link" value="${esc(p.link)}" placeholder="https://"></label>
+    <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
+    wirePills(sh); const v = fval(sh);
+    const showPicked = () => {
+      sh.querySelector('#pickedBox').innerHTML = picked ? `<div class="picked">📍 ${esc(picked.address || '위치 저장됨')} <button type="button" class="lnk" data-x="unpick">위치 빼기</button></div>` : '';
+      sh.querySelector('[data-x=unpick]')?.addEventListener('click', () => { picked = null; showPicked(); });
+    };
+    showPicked();
+    if (mapsEnabled) {
+      const near = mapCtl?.map?.getCenter?.() ? { center: mapCtl.map.getCenter(), radius: 30000 } : undefined;
+      mountPlaceSearch(sh.querySelector('#placeBox'), (r) => {
+        picked = { lat: r.lat, lng: r.lng, address: r.address, placeId: r.placeId };
+        sh.querySelector('[name=name]').value = r.name; showPicked();
+      }, near).catch(() => { sh.querySelector('#placeBox').innerHTML = '<div class="small muted">장소 검색을 불러오지 못했어요</div>'; });
+    }
+    sh.querySelector('[data-x=save]').onclick = async () => {
+      if (!v('name')) return toast('이름을 적어 주세요');
+      let link = v('link'); if (link && !/^https?:\/\//i.test(link)) link = 'https://' + link;
+      const data = { name: v('name'), cat: pillVal(sh, 'cat')[0] || '기타', memo: v('memo'), link,
+        lat: picked?.lat ?? null, lng: picked?.lng ?? null, address: picked?.address || '', placeId: picked?.placeId || null };
+      closeSheet();
+      if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'places', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
+      else await write(() => updateDoc(doc(db, 'trips', t.id, 'places', p.id), data));
+    };
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => { closeSheet(); write(() => deleteDoc(doc(db, 'trips', t.id, 'places', p.id))); });
+  });
+}
+function toPlanSheet(t, p) {
+  if (!p) return;
+  const days = tripDays(t);
+  const today = fmtD(new Date());
+  const def = p.addedTo?.date || (days.includes(today) ? today : days[0]);
+  openSheet(`<h2>'${esc(p.name)}' 일정에 넣기</h2>
+    <label class="f"><span>날짜</span>${pills('day', days.map((d, i) => `Day ${i + 1}${d.startsWith('day') ? '' : ' ' + md(d)}`), (() => { const i = days.indexOf(def); return `Day ${i + 1}${def.startsWith('day') ? '' : ' ' + md(def)}`; })())}</label>
+    <div class="f"><span class="flbl">시간 (선택)</span>${timeField('time', '', '시간 없이 넣기')}</div>
+    <p class="small muted" style="margin:-4px 0 12px">찜 목록에는 '추가됨'으로 남아 있어요.</p>
+    <div class="rowbtns"><button class="btn ghost" data-x="no">취소</button><button class="btn pri" data-x="ok">일정에 넣기</button></div>`, (sh) => {
+    wirePills(sh); wireTimeFields(sh, '일정 시간');
+    sh.querySelector('[data-x=no]').onclick = closeSheet;
+    sh.querySelector('[data-x=ok]').onclick = async () => {
+      const label = pillVal(sh, 'day')[0];
+      const idx = days.findIndex((d, i) => label === `Day ${i + 1}${d.startsWith('day') ? '' : ' ' + md(d)}`);
+      const date = days[Math.max(0, idx)];
+      const time = sh.querySelector('[name=time]').value;
+      const itemId = uid();
+      closeSheet();
+      await write(async () => {
+        await setDoc(doc(db, 'trips', t.id, 'items', itemId), {
+          title: p.name, date, time, memo: p.memo || '', link: p.link || '', cat: p.cat === '숙소' ? '숙소' : (ICATS[p.cat] ? p.cat : '기타'),
+          lat: p.lat ?? null, lng: p.lng ?? null, address: p.address || '', placeId: p.placeId || null,
+          done: false, createdAt: Date.now(), by: S.user.uid, fromWish: p.id,
+        });
+        await updateDoc(doc(db, 'trips', t.id, 'places', p.id), { addedTo: { itemId, date } });
+      });
+      toast(`Day ${idx + 1}에 넣었어요`);
+    };
+  });
+}
 
 /* ---------- flights ---------- */
 const sortFlights = () => [...S.flights].sort((a, b) => (a.depAt || '').localeCompare(b.depAt || ''));
@@ -610,7 +773,7 @@ function tripForm(t) {
 }
 async function deleteTripData(t) {
   const id = t.id;
-  for (const name of ['items', 'expenses', 'flights', 'files']) {
+  for (const name of ['items', 'expenses', 'flights', 'files', 'places']) {
     const snap = await getDocs(collection(db, 'trips', id, name));
     let batch = writeBatch(db); let n = 0;
     for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }
@@ -635,12 +798,12 @@ function itemForm(t, item) {
     <div id="pickedBox"></div>
     <label class="f"><span>이름</span><input class="inp" name="title" value="${esc(item.title)}" placeholder="예: 도톤보리"></label>
     <div class="two"><label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === item.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
-      <label class="f"><span>시간</span><input class="inp" type="time" name="time" value="${esc(item.time)}"></label></div>
+      <div class="f"><span class="flbl">시간</span>${timeField('time', item.time)}</div></div>
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ICATS), item.cat || '관광')}</label>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="예약번호, 추천 메뉴, 영업시간…">${esc(item.memo)}</textarea></label>
     <label class="f"><span>링크 (선택)</span><input class="inp" name="link" value="${esc(item.link)}" placeholder="https://"></label>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    wirePills(sh); const v = fval(sh);
+    wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh);
     const showPicked = () => {
       sh.querySelector('#pickedBox').innerHTML = picked ? `<div class="picked">📍 ${esc(picked.address || '위치 저장됨')} <button type="button" class="lnk" data-x="unpick">위치 빼기</button></div>` : '';
       sh.querySelector('[data-x=unpick]')?.addEventListener('click', () => { picked = null; showPicked(); });
@@ -678,8 +841,8 @@ function flightForm(t, f) {
       <label class="f"><span>편명</span><input class="inp mono" name="flightNo" value="${esc(f.flightNo)}" placeholder="예: 7C1301" autocapitalize="characters"></label></div>
     <div class="two"><label class="f"><span>출발 공항</span><input class="inp mono" name="from" value="${esc(f.from)}" placeholder="ICN" autocapitalize="characters"></label>
       <label class="f"><span>도착 공항</span><input class="inp mono" name="to" value="${esc(f.to)}" placeholder="KIX" autocapitalize="characters"></label></div>
-    <label class="f"><span>출발 일시 (출발지 현지 시각)</span><input class="inp" type="datetime-local" name="depAt" value="${esc(f.depAt)}"></label>
-    <label class="f"><span>도착 일시 (도착지 현지 시각)</span><input class="inp" type="datetime-local" name="arrAt" value="${esc(f.arrAt)}"></label>
+    <div class="f"><span class="flbl">출발 (출발지 현지 시각)</span><div class="two"><input class="inp" type="date" name="depDate" value="${esc((f.depAt || '').slice(0, 10))}">${timeField('depTime', (f.depAt || '').slice(11, 16), '출발 시간')}</div></div>
+    <div class="f"><span class="flbl">도착 (도착지 현지 시각)</span><div class="two"><input class="inp" type="date" name="arrDate" value="${esc((f.arrAt || '').slice(0, 10))}">${timeField('arrTime', (f.arrAt || '').slice(11, 16), '도착 시간')}</div></div>
     <div class="two"><label class="f"><span>예약번호</span><input class="inp mono" name="bookingRef" value="${esc(f.bookingRef)}" autocapitalize="characters"></label>
       <label class="f"><span>좌석</span><input class="inp" name="seat" value="${esc(f.seat)}" placeholder="예: 23A"></label></div>
     <div class="two"><label class="f"><span>터미널</span><input class="inp" name="terminal" value="${esc(f.terminal)}" placeholder="예: T1"></label>
@@ -690,7 +853,9 @@ function flightForm(t, f) {
       <label class="btn ghost block" style="margin-top:8px">📷 사진 추가<input type="file" accept="image/*" multiple hidden id="qrFile"></label>
       <div class="hint">캡처한 QR이나 탑승권 화면을 넣어두면 공항에서 바로 꺼내 볼 수 있어요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    wirePills(sh); const v = fval(sh);
+    wirePills(sh); wireTimeFields(sh, '비행기 시간'); const v = fval(sh);
+    // 출발일 고르면 도착일 비어 있을 때 같은 날로
+    sh.querySelector('[name=depDate]').addEventListener('change', (e) => { const a = sh.querySelector('[name=arrDate]'); if (!a.value) a.value = e.target.value; });
     // 사진 목록: 기존(id) + 새로 넣은 것(data) — 저장 누를 때 반영
     let qrs = (f.qrIds || []).map((id) => ({ id, data: qrCache.get(id) && qrCache.get(id) !== 'loading' ? qrCache.get(id) : null }));
     const removed = [];
@@ -718,10 +883,12 @@ function flightForm(t, f) {
       return qrs.map((q) => q.id);
     };
     sh.querySelector('[data-x=save]').onclick = async () => {
-      if (!v('depAt')) return toast('출발 일시를 넣어 주세요');
+      if (!v('depDate') || !v('depTime')) return toast('출발 날짜와 시간을 넣어 주세요');
+      const depAt = `${v('depDate')}T${v('depTime')}`;
+      const arrAt = v('arrDate') && v('arrTime') ? `${v('arrDate')}T${v('arrTime')}` : '';
       const data = {
         kind: pillVal(sh, 'kind')[0] || '항공편', airline: v('airline'), flightNo: v('flightNo').toUpperCase(),
-        from: v('from').toUpperCase(), to: v('to').toUpperCase(), depAt: v('depAt'), arrAt: v('arrAt'),
+        from: v('from').toUpperCase(), to: v('to').toUpperCase(), depAt, arrAt,
         bookingRef: v('bookingRef').toUpperCase(), seat: v('seat'), terminal: v('terminal'), baggage: v('baggage'), memo: v('memo'),
       };
       const fid = isNew ? uid() : f.id;
@@ -914,19 +1081,24 @@ document.addEventListener('click', (ev) => {
     case 'newExp': expForm(t, null); break;
     case 'editExp': expForm(t, S.expenses.find((x) => x.id === id)); break;
     case 'copy': copy(el.dataset.text); break;
-    case 'noop': { const inp = el.querySelector('input'); try { inp?.showPicker?.(); } catch { inp?.focus(); } break; }
+    case 'settime': {
+      const i = S.items.find((x) => x.id === id); if (!i) break;
+      openTimeWheel(i.time, `${i.title} 시간`, (v) => { i.time = v; render(); write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { time: v })); });
+      break;
+    }
+    case 'ordering': S.ordering = !S.ordering; render(); break;
+    case 'mv': moveItem(t, id, Number(el.dataset.dir)); break;
+    case 'wishcat': S.wishCat = el.dataset.v; render(); break;
+    case 'newWish': wishForm(t, null); break;
+    case 'editWish': wishForm(t, S.places.find((x) => x.id === id)); break;
+    case 'toPlan': toPlanSheet(t, S.places.find((x) => x.id === id)); break;
+    case 'focusWish': { const p = S.places.find((x) => x.id === id); if (p && mapCtl && ll(p)) { mapCtl.focus({ lat: p.lat, lng: p.lng }); window.scrollTo({ top: 0, behavior: 'smooth' }); } break; }
     case 'qrview': ev.stopPropagation(); openQrViewer(el.dataset.flight, Number(el.dataset.idx || 0)); break;
   }
 }, true);
 
 document.addEventListener('change', (ev) => {
   const t = trip(); if (!t) return;
-  const ti = ev.target.closest('.time-in');
-  if (ti) {
-    const id = ti.dataset.time;
-    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { time: ti.value || '' }));
-    return;
-  }
   const sel = ev.target.closest('.segsel');
   if (sel) {
     const id = sel.dataset.id;
