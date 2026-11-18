@@ -777,6 +777,39 @@ function flightRow(f) {
     <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div>
     ${(() => { const w = flightWho(trip(), f); return w.length ? `<div class="bp-who small">${peopleChips(trip(), w)}</div>` : ''; })()}</div></div></div>`;
 }
+/** 완료한 일정 별점: 내 별점(끌어서 0.5 단위) + 같이 간 사람 평균 */
+function starsHtml(t, i) {
+  const all = Object.values(i.ratings || {}).filter((v) => v > 0);
+  const mine = i.ratings?.[S.user?.uid] || 0;
+  const avg = all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0;
+  return `<div class="rate" data-rate="${esc(i.id)}">
+    <div class="stars" style="--v:${(mine / 5) * 100}%" aria-label="별점"><span class="sbg">★★★★★</span><span class="sfg">★★★★★</span></div>
+    <span class="rtxt">${mine ? mine.toFixed(1) : '← 끌어서 별점'}</span>
+    ${all.length > 1 ? `<span class="ravg">같이 평균 ★${avg.toFixed(1)} · ${all.length}명</span>` : ''}
+  </div>`;
+}
+/* 별점: 별 위를 누르거나 끌어서 */
+document.addEventListener('pointerdown', (ev) => {
+  const st = ev.target.closest('.rate .stars'); if (!st) return;
+  const t = trip(); const id = st.closest('.rate').dataset.rate; if (!t || !id) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const txt = st.parentElement.querySelector('.rtxt');
+  let v = 0;
+  const set = (x) => {
+    const r = st.getBoundingClientRect();
+    v = Math.min(5, Math.max(0.5, Math.ceil(((x - r.left) / r.width) * 10) / 2));
+    st.style.setProperty('--v', `${(v / 5) * 100}%`); txt.textContent = v.toFixed(1);
+  };
+  set(ev.clientX); navigator.vibrate?.(8);
+  let last = v;
+  const move = (e) => { set(e.clientX); if (v !== last) { last = v; navigator.vibrate?.(5); } };
+  const up = () => {
+    document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
+    const it = S.items.find((x) => x.id === id); if (it) it.ratings = { ...(it.ratings || {}), [S.user.uid]: v };
+    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { [`ratings.${S.user.uid}`]: v }));
+  };
+  document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+});
 function itemRow(t, i, no, list) {
   const c = i.kind === 'memo' ? ['#FFF6CC', '#C9A227'] : ICATS[i.cat] || ICATS.기타;
   if (S.ordering) {
@@ -797,7 +830,7 @@ function itemRow(t, i, no, list) {
     return `<div class="item memo" style="--cat:${c[1]}" data-act="editMemo" data-id="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
   }
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
-    <div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
+    ${i.done ? starsHtml(t, i) : ''}<div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
       <div style="flex:1;min-width:0"><div class="ititle">${no ? `<span class="pinno" style="background:${c[1]}">${no}</span>` : ''}${esc(i.title)}</div>
       ${i.address ? `<div class="iaddr">${esc(i.address)}</div>` : ''}
       ${i.memo ? `<div class="imemo">${esc(i.memo)}</div>` : ''}
@@ -1556,6 +1589,7 @@ async function doDeleteAccount() {
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el || el.closest('.sheet')) return;
   if (ev.target.closest('a')) return; // 링크는 그대로 열기
+  if (ev.target.closest('.rate')) return; // 별점 영역은 지도 이동 안 함
   const a = el.dataset.act, id = el.dataset.id, t = trip();
   switch (a) {
     case 'open': S.tab = 'plan'; openTrip(id); break;

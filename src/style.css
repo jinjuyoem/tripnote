@@ -64,7 +64,7 @@ header h1{font-size:20px;font-weight:700;letter-spacing:-.02em;flex:1;white-spac
 .item{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
 .item::before{content:"";position:absolute;left:-26px;top:16px;width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px solid var(--cat,var(--ink2))}
 .item.flightrow{background:#EEF1F7;border-color:#D5DBE8;cursor:pointer}
-.item.done{opacity:.55}
+.item.done>.irow{opacity:.55}
 .item.done .ititle{text-decoration:line-through}
 .irow{display:flex;align-items:flex-start;gap:10px}
 .itime{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink2);min-width:44px;padding-top:1px}
@@ -336,3 +336,11 @@ textarea.inp{resize:vertical;min-height:64px}
 /* 시트 닫기(취소) */
 .sheet{position:relative}
 .sheetx{position:sticky;top:-6px;float:right;z-index:3;width:34px;height:34px;margin:-8px -6px 0 8px;border:0;border-radius:50%;background:#EEE9DD;color:var(--ink);font-size:15px;cursor:pointer;display:grid;place-items:center}
+
+/* 별점 (완료한 일정) */
+.rate{display:flex;align-items:center;gap:8px;margin:-2px 0 8px;padding-bottom:8px;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+.stars{position:relative;display:inline-block;font-size:26px;line-height:1;letter-spacing:2px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;padding:2px 0}
+.stars .sbg{color:#E3DCCB}
+.stars .sfg{position:absolute;left:0;top:2px;width:var(--v,0%);overflow:hidden;white-space:nowrap;color:#F2B01E}
+.rtxt{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:var(--ink)}
+.ravg{font-size:11px;color:var(--ink2);margin-left:auto}
