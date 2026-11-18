@@ -313,3 +313,23 @@ textarea.inp{resize:vertical;min-height:64px}
 .mini.fl{background:#EEF1F7;border-left-color:#1F2A44}
 .lane-empty{font-size:12px;color:#B5AE9E;text-align:center;padding:10px 0}
 .meet{display:flex;align-items:center;gap:8px;background:var(--green-soft);color:var(--green);font-weight:700;font-size:13px;border-radius:12px;padding:10px 12px;margin:2px 0 10px}
+/* 칸 안 이동 시간 (작게) */
+.lane .seg.sm{margin:0 0 6px;padding:0 2px;gap:4px;flex-wrap:wrap;font-size:11px;line-height:1.35}
+.lane .seg.sm::before{display:none}
+.lane .seg.sm .segsel{font-size:11px;padding:1px 4px}
+.lane .seg.sm .seginfo{flex:1 1 auto;min-width:0}
+.lane .seg.sm .seglink{margin-left:0;font-size:10px}
+.seglbl{width:100%;font-size:10px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lav{display:inline-flex}
+.lav .av+.av{margin-left:-7px;box-shadow:0 0 0 2px var(--paper)}
+.mno{font-style:normal;display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--c,#888);color:#fff;font-size:9px;margin-right:4px;font-family:inherit}
+/* 누구 일정 보기 */
+.vabtns{display:flex;gap:6px;overflow-x:auto;margin:0 0 8px;padding-bottom:2px;scrollbar-width:none}
+.vabtns::-webkit-scrollbar{display:none}
+.vab{display:inline-flex;align-items:center;gap:5px;flex:none;font:inherit;font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:4px 10px 4px 4px;cursor:pointer}
+.vab:not(:has(.av)){padding-left:10px}
+.vab .av{border:0}
+.vab.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.vabar{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px 2px;margin:0 0 10px}
+.vabar>b{display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px}
+.vabar>b .av{border:0}
