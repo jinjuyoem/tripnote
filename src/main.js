@@ -336,7 +336,7 @@ async function loadWeather(t, days) {
 }
 
 /* ---------- 이동 구간 (거리·시간) ---------- */
-// 기본은 '자동': 걸어서 30분 미만이면 도보, 그 이상이면 대중교통. 구간마다 직접 바꿀 수도 있음
+// 수단은 알아서: 걸어서 30분 미만 또는 대중교통과 10분 이내 차이면 도보, 아니면 대중교통. 구간마다 직접 바꿀 수도 있음
 const WALK_LIMIT = 30 * 60;
 const segMode = (t, i) => i.moveMode || 'auto';
 const segKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|');
@@ -350,14 +350,16 @@ function straightM(a, b) {
 function segRow(t, from, to) {
   const mode = segMode(t, to);
   const r = segResult(from, to, mode);
-  const used = mode === 'auto' ? (r && r.used) || 'transit' : mode;
+  // 알아서 고른 수단(결과 나오기 전엔 직선거리로 추정)을 그대로 선택된 상태로 보여줌
+  const guess = straightM(from, to) < 1800 ? 'walk' : 'transit';
+  const autoUsed = mode === 'auto' ? (r && r.used) || guess : null;
+  const shown = mode === 'auto' ? autoUsed : mode;
   return `<div class="seg" data-seg="${esc(to.id)}">
-    <select class="segsel" data-act="segmode" data-id="${esc(to.id)}" aria-label="이동 수단">
-      <option value="auto" ${mode === 'auto' ? 'selected' : ''}>✨ 자동</option>
-      ${Object.entries(MOVES).map(([k, v]) => `<option value="${k}" ${k === mode ? 'selected' : ''}>${v[0]} ${v[1]}</option>`).join('')}
+    <select class="segsel" data-act="segmode" data-id="${esc(to.id)}" data-auto="${esc(autoUsed || '')}" aria-label="이동 수단">
+      ${Object.entries(MOVES).map(([k, v]) => `<option value="${k}" ${k === shown ? 'selected' : ''}>${v[0]} ${v[1]}</option>`).join('')}
     </select>
     <span class="seginfo" data-seginfo="${esc(to.id)}">${segText(from, to, mode)}</span>
-    <a class="seglink" data-seglink="${esc(to.id)}" href="${esc(dirUrl(from, to, used))}" target="_blank" rel="noopener">길찾기</a>
+    <a class="seglink" data-seglink="${esc(to.id)}" href="${esc(dirUrl(from, to, shown))}" target="_blank" rel="noopener">길찾기</a>
   </div>`;
 }
 function segResult(from, to, mode) {
@@ -376,9 +378,8 @@ function segText(from, to, mode) {
     const m = mode === 'auto' ? 'transit' : mode;
     return `<span class="muted">이 지역은 ${MOVES[m][1]} 시간 미제공 · 직선 ${fmtDist(straightM(from, to))} → 길찾기에서 확인</span>`;
   }
-  const icon = mode === 'auto' && r.used ? MOVES[r.used][0] + ' ' : '';
   const note = r.transitNone ? ' <span class="muted">(대중교통 시간 미제공 → 길찾기)</span>' : '';
-  return `${icon}<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}${note}`;
+  return `<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}${note}`;
 }
 async function routeFor(from, to, mode) {
   const when = from.time || to.time;
@@ -387,9 +388,13 @@ async function routeFor(from, to, mode) {
     return r?.none ? { none: true } : { ...r, used: mode };
   }
   const walk = await computeRoute(from, to, 'WALK', when);
-  if (walk && !walk.none && walk.secs < WALK_LIMIT) return { ...walk, used: 'walk' };
+  const okWalk = walk && !walk.none;
+  if (okWalk && walk.secs < WALK_LIMIT) return { ...walk, used: 'walk' }; // 걸어서 30분 미만 → 도보
   const tr = await computeRoute(from, to, 'TRANSIT', when);
-  if (tr && !tr.none) return { ...tr, used: 'transit' };
+  if (tr && !tr.none) {
+    if (okWalk && walk.secs - tr.secs <= 10 * 60) return { ...walk, used: 'walk' }; // 대중교통과 10분 이내 차이 → 도보
+    return { ...tr, used: 'transit' };
+  }
   // 대중교통 정보가 없는 지역(일본 등): 도보 시간이라도 보여주기
   if (walk && !walk.none) return { ...walk, used: 'walk', transitNone: true };
   return { none: true };
@@ -406,6 +411,8 @@ async function fillSegments(t) {
       if (el) el.innerHTML = segText(from, to, mode);
       const r = segCache.get(key); const a = document.querySelector(`[data-seglink="${CSS.escape(to.id)}"]`);
       if (a && r && r.used) a.href = dirUrl(from, to, r.used);
+      const sel = document.querySelector(`.segsel[data-id="${CSS.escape(to.id)}"]`);
+      if (sel && mode === 'auto' && r && r.used) { sel.value = r.used; sel.dataset.auto = r.used; }
     };
     routeFor(from, to, mode).then((res) => {
       segCache.set(key, { ...res, key });
@@ -1191,8 +1198,10 @@ document.addEventListener('change', (ev) => {
   const sel = ev.target.closest('.segsel');
   if (sel) {
     const id = sel.dataset.id;
-    const it = S.items.find((x) => x.id === id); if (it) it.moveMode = sel.value; // 즉시 반영
-    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { moveMode: sel.value }));
+    // 알아서 고른 수단과 같은 걸 고르면 계속 자동, 다른 걸 고르면 그 구간만 고정
+    const mm = sel.value === sel.dataset.auto ? null : sel.value;
+    const it = S.items.find((x) => x.id === id); if (it) it.moveMode = mm; // 즉시 반영
+    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { moveMode: mm }));
     render();
   }
 });
