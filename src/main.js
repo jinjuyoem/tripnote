@@ -1256,8 +1256,29 @@ async function checkFlight(t, id, btn) {
 }
 /** 항공사 온라인 체크인 페이지 (확인된 곳은 바로, 나머지는 검색 결과로) */
 const CHECKIN = {
+  // 한국 (진주 확인)
+  KE: 'https://www.koreanair.com/check-in',
   OZ: 'https://flyasiana.com/C/KR/KO/contents/online-check-in',
   '7C': 'https://wcc.jejuair.net/ko/ibe/checkin/viewCheckin.do',
+  LJ: 'https://www.jinair.com',
+  TW: 'https://www.trinityairways.com/app/serviceInfo/contents/1121', // 티웨이 → 트리니티
+  BX: 'https://m.airbusan.com/mw/checkin/checkinList',
+  RS: 'https://flyairseoul.com/I/ko/viewCheckInList.do',
+  ZE: 'https://www.eastarjet.com/newstar/PGWII00001',
+  YP: 'https://www.airpremia.com/a/ko/checkin/online',
+  RF: 'https://www.aerok.com/ko-KR/boarding/check-in',
+  // 해외: 공식 홈페이지
+  JL: 'https://www.jal.co.jp', NH: 'https://www.ana.co.jp', MM: 'https://www.flypeach.com', GK: 'https://www.jetstar.com', ZG: 'https://www.zipair.net',
+  CX: 'https://www.cathaypacific.com', UO: 'https://www.hkexpress.com', HX: 'https://www.hongkongairlines.com', NX: 'https://www.airmacau.com.mo',
+  CI: 'https://www.china-airlines.com', BR: 'https://www.evaair.com', JX: 'https://www.starlux-airlines.com', IT: 'https://www.tigerairtw.com',
+  CA: 'https://www.airchina.com', MU: 'https://www.ceair.com', CZ: 'https://www.csair.com',
+  VN: 'https://www.vietnamairlines.com', VJ: 'https://www.vietjetair.com', QH: 'https://www.bambooairways.com', TG: 'https://www.thaiairways.com',
+  FD: 'https://www.airasia.com', AK: 'https://www.airasia.com', Z2: 'https://www.airasia.com', D7: 'https://www.airasia.com',
+  SQ: 'https://www.singaporeair.com', TR: 'https://www.flyscoot.com', MH: 'https://www.malaysiaairlines.com', PR: 'https://www.philippineairlines.com',
+  '5J': 'https://www.cebupacificair.com', GA: 'https://www.garuda-indonesia.com',
+  UA: 'https://www.united.com', DL: 'https://www.delta.com', AA: 'https://www.aa.com', HA: 'https://www.hawaiianairlines.com', AC: 'https://www.aircanada.com',
+  EK: 'https://www.emirates.com', QR: 'https://www.qatarairways.com', TK: 'https://www.turkishairlines.com', AF: 'https://www.airfrance.com',
+  KL: 'https://www.klm.com', LH: 'https://www.lufthansa.com', AY: 'https://www.finnair.com', QF: 'https://www.qantas.com',
 };
 function checkinUrl(f) {
   const code = (f.flightNo || '').toUpperCase().replace(/\s/g, '').slice(0, 2);
