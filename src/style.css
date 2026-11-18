@@ -333,3 +333,6 @@ textarea.inp{resize:vertical;min-height:64px}
 .vabar{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px 2px;margin:0 0 10px}
 .vabar>b{display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px}
 .vabar>b .av{border:0}
+/* 시트 닫기(취소) */
+.sheet{position:relative}
+.sheetx{position:sticky;top:-6px;float:right;z-index:3;width:34px;height:34px;margin:-8px -6px 0 8px;border:0;border-radius:50%;background:#EEE9DD;color:var(--ink);font-size:15px;cursor:pointer;display:grid;place-items:center}

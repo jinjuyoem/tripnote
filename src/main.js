@@ -1078,8 +1078,8 @@ function viewSettle(t) {
 function openSheet(html, onMount) {
   closeSheet();
   const s = document.createElement('div'); s.className = 'scrim'; s.id = 'scrim';
-  s.innerHTML = `<div class="sheet" role="dialog">${html}</div>`;
-  s.addEventListener('click', (e) => { if (e.target === s) closeSheet(); });
+  s.innerHTML = `<div class="sheet" role="dialog"><button type="button" class="sheetx" aria-label="닫기">✕</button>${html}</div>`;
+  s.addEventListener('click', (e) => { if (e.target === s || e.target.closest('.sheetx')) closeSheet(); });
   document.body.appendChild(s); document.body.classList.add('noscroll');
   onMount?.(s.querySelector('.sheet'));
 }
