@@ -909,3 +909,8 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 .fltb{display:inline-flex;align-items:center;gap:6px;border:0;background:none;border-radius:99px;padding:7px 14px;font:inherit;font-size:12px;font-weight:600;color:var(--ink2);cursor:pointer}
 .fltb .av{border:0}
 .fltb.on{background:var(--ink);color:#fff}
+
+/* shoong wordmark (2026-11-19) */
+.brand svg{height:24px;width:auto;display:block}
+.login h1.login-word{margin:8px auto 14px;line-height:0}
+.login h1.login-word svg{height:52px;width:auto}
