@@ -94,6 +94,27 @@ export async function createMap(el) {
   return { map, draw, focus, centerOn, clear };
 }
 
+/** 두 지점 사이 거리·시간 (Routes API). mode: WALK | TRANSIT | DRIVE | BICYCLE */
+export async function computeRoute(from, to, mode) {
+  if (!mapsEnabled) return null;
+  const body = {
+    origin: { location: { latLng: { latitude: from.lat, longitude: from.lng } } },
+    destination: { location: { latLng: { latitude: to.lat, longitude: to.lng } } },
+    travelMode: mode, languageCode: 'ko',
+  };
+  if (mode === 'DRIVE') body.routingPreference = 'TRAFFIC_UNAWARE';
+  const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error('routes ' + r.status);
+  const j = await r.json();
+  const rt = j.routes?.[0];
+  if (!rt) return { none: true };
+  return { meters: rt.distanceMeters || 0, secs: parseInt(rt.duration, 10) || 0 };
+}
+
 /** 장소 검색창을 container에 붙이고, 고르면 onPick({name,address,lat,lng,placeId}) */
 export async function mountPlaceSearch(container, onPick, near) {
   if (!mapsEnabled) return null;

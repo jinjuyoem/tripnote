@@ -4,10 +4,11 @@ import {
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
   getDoc, arrayUnion, writeBatch, getDocs,
 } from './firebase.js';
-import { createMap, mountPlaceSearch, mapsEnabled } from './maps.js';
+import { createMap, mountPlaceSearch, mapsEnabled, computeRoute } from './maps.js';
 import {
   esc, uid, randCode, won, num, md, hm, parseD, fmtD, tripDays, dday,
   ICATS, ECATS, DAYCOLORS, CURRENCIES, toast, copy,
+  rateUnit, MOVES, fmtDur, fmtDist, compressImage,
 } from './util.js';
 
 /* ---------------- state ---------------- */
@@ -177,7 +178,8 @@ function viewTrip(t) {
     ${body}</div>`;
   const fab = { plan: ['newItem', '+ 일정 추가'], flight: ['newFlight', '+ 항공권 추가'], money: ['newExp', '+ 지출 추가'] }[S.tab];
   $('fabhost').innerHTML = fab ? `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>` : '';
-  if (S.tab === 'plan') drawPlanMap(t, days); else showMap(false);
+  if (S.tab === 'plan') { drawPlanMap(t, days); fillSegments(t); } else showMap(false);
+  if (S.tab === 'flight') loadQrThumbs(t);
 }
 
 /* ---------- plan ---------- */
@@ -189,7 +191,7 @@ function dayFlights(d) {
   const out = [];
   S.flights.forEach((f) => {
     if (f.depAt?.slice(0, 10) === d) out.push({ ...f, _kind: 'dep', time: hm(f.depAt) });
-    if (f.arrAt?.slice(0, 10) === d && f.arrAt.slice(0, 10) !== f.depAt?.slice(0, 10)) out.push({ ...f, _kind: 'arr', time: hm(f.arrAt) });
+    if (f.arrAt?.slice(0, 10) === d) out.push({ ...f, _kind: 'arr', time: hm(f.arrAt) });
   });
   return out;
 }
@@ -213,23 +215,82 @@ function viewPlan(t, days) {
   ].sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
   let n = 0;
   const pinNo = new Map(); items.forEach((i) => { if (ll(i)) pinNo.set(i.id, ++n); });
+  // 위치 있는 장소끼리 바로 앞 장소 → 이 장소 구간
+  const prevOf = new Map(); let last = null;
+  items.forEach((i) => { if (ll(i)) { if (last) prevOf.set(i.id, last); last = i; } });
   return `<div class="days">${days.map((d, idx) => {
     const c = dayItems(d).length; return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span></button>`;
   }).join('')}</div>
-  ${rows.length ? `<div class="timeline">${rows.map((r) => r.kind === 'flight' ? flightRow(r.f) : itemRow(t, r.i, pinNo.get(r.i.id))).join('')}</div>`
+  ${rows.length ? `<div class="timeline">${rows.map((r) => r.kind === 'flight' ? flightRow(r.f)
+    : (prevOf.has(r.i.id) ? segRow(t, prevOf.get(r.i.id), r.i) : '') + itemRow(t, r.i, pinNo.get(r.i.id))).join('')}</div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
+}
+
+/* ---------- 이동 구간 (거리·시간) ---------- */
+const segMode = (t, i) => i.moveMode || t.defaultMove || 'transit';
+const segKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|');
+const segCache = new Map(); // key -> {meters,secs} | {none} | 'loading' | {err}
+function segRow(t, from, to) {
+  const mode = segMode(t, to);
+  const dir = `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[mode][3]}`;
+  return `<div class="seg" data-seg="${esc(to.id)}">
+    <select class="segsel" data-act="segmode" data-id="${esc(to.id)}" aria-label="이동 수단">
+      ${Object.entries(MOVES).map(([k, v]) => `<option value="${k}" ${k === mode ? 'selected' : ''}>${v[0]} ${v[1]}</option>`).join('')}
+    </select>
+    <span class="seginfo" data-seginfo="${esc(to.id)}">${segText(from, to, mode)}</span>
+    <a class="seglink" href="${esc(dir)}" target="_blank" rel="noopener">길찾기</a>
+  </div>`;
+}
+function segResult(from, to, mode) {
+  const k = segKey(from, to, mode);
+  if (segCache.has(k)) return segCache.get(k);
+  const m = to.move; // 저장해 둔 계산 결과 재사용 (API 호출 아끼기)
+  if (m && m.key === k) { segCache.set(k, m); return m; }
+  return null;
+}
+function segText(from, to, mode) {
+  const r = segResult(from, to, mode);
+  if (!r || r === 'loading') return '<span class="muted">계산 중…</span>';
+  if (r.err) return '<span class="muted">계산 실패</span>';
+  if (r.none) return '<span class="muted">이 수단으로는 경로가 없어요</span>';
+  return `<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}`;
+}
+async function fillSegments(t) {
+  if (!mapsEnabled) return;
+  const items = dayItems(S.day).filter(ll);
+  for (let k = 1; k < items.length; k++) {
+    const from = items[k - 1], to = items[k], mode = segMode(t, to);
+    if (segResult(from, to, mode)) continue;
+    const key = segKey(from, to, mode); segCache.set(key, 'loading');
+    computeRoute(from, to, MOVES[mode][2]).then((r) => {
+      const res = r?.none ? { none: true } : r;
+      segCache.set(key, { ...res, key });
+      updateDoc(doc(db, 'trips', t.id, 'items', to.id), { move: { ...res, key } }).catch(() => {});
+      const el = document.querySelector(`[data-seginfo="${CSS.escape(to.id)}"]`);
+      if (el) el.innerHTML = segText(from, to, mode);
+    }).catch((e) => {
+      console.error(e); segCache.set(key, { err: true });
+      const el = document.querySelector(`[data-seginfo="${CSS.escape(to.id)}"]`);
+      if (el) el.innerHTML = segText(from, to, mode);
+    });
+  }
 }
 function flightRow(f) {
   const dep = f._kind === 'dep';
-  return `<div class="item flightrow" style="--cat:#1F2A44" data-act="tab" data-v="flight">
+  const title = dep ? `🛫 ${esc(f.from || '?')} 출발 → ${esc(f.to || '?')}` : `🛬 ${esc(f.to || '?')} 도착 (${esc(f.from || '?')}에서)`;
+  const sub = [f.airline, f.flightNo].filter(Boolean).join(' ')
+    + (dep && f.terminal ? ` · ${f.terminal}` : '')
+    + (dep && f.arrAt ? ` · 도착 ${hm(f.arrAt)}` : '')
+    + (!dep && f.depAt ? ` · 출발 ${hm(f.depAt)}` : '');
+  return `<div class="item flightrow ${dep ? '' : 'arr'}" style="--cat:#1F2A44" data-act="tab" data-v="flight">
     <div class="irow"><div class="itime">${esc(f.time || '--:--')}</div>
-    <div style="flex:1;min-width:0"><div class="ititle">✈️ ${esc(f.from || '?')} → ${esc(f.to || '?')} ${dep ? '출발' : '도착'}</div>
-    <div class="imemo">${esc([f.airline, f.flightNo].filter(Boolean).join(' '))}${f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}</div></div></div></div>`;
+    <div style="flex:1;min-width:0"><div class="ititle">${title}</div>
+    <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div></div></div></div>`;
 }
 function itemRow(t, i, no) {
   const c = ICATS[i.cat] || ICATS.기타;
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
-    <div class="irow"><div class="itime">${esc(i.time || '--:--')}</div>
+    <div class="irow"><label class="itime ${i.time ? '' : 'empty'}" data-act="noop"><input type="time" class="time-in" data-time="${esc(i.id)}" value="${esc(i.time || '')}" aria-label="시간 변경"><span>${esc(i.time || '시간')}</span></label>
       <div style="flex:1;min-width:0"><div class="ititle">${no ? `<span class="pinno" style="background:${c[1]}">${no}</span>` : ''}${esc(i.title)}</div>
       ${i.address ? `<div class="iaddr">${esc(i.address)}</div>` : ''}
       ${i.memo ? `<div class="imemo">${esc(i.memo)}</div>` : ''}
@@ -288,6 +349,8 @@ function viewFlights() {
         ${f.baggage ? `<div><span>수하물</span><b>${esc(f.baggage)}</b></div>` : ''}
       </div>
       ${f.memo ? `<div class="imemo" style="margin-top:8px">${esc(f.memo)}</div>` : ''}
+      ${(f.qrIds || []).length ? `<div class="qrrow">${f.qrIds.map((q, k) => `<button class="qrthumb" data-act="qrview" data-flight="${esc(f.id)}" data-idx="${k}">${qrCache.get(q) && qrCache.get(q) !== 'loading' ? `<img src="${qrCache.get(q)}" alt="QR ${k + 1}">` : '<span>QR</span>'}</button>`).join('')}
+        <button class="btn dark qrbig" data-act="qrview" data-flight="${esc(f.id)}" data-idx="0">📱 체크인 QR 크게 보기</button></div>` : ''}
       <div class="iactions" style="margin-top:10px">
         ${f.flightNo ? `<a class="lnk map" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent((f.flightNo || '').replace(/\s/g, '') + ' 항공편')}">운항 상태</a>` : ''}
         <button class="lnk" data-act="editFlight" data-id="${esc(f.id)}">수정</button>
@@ -295,8 +358,50 @@ function viewFlights() {
   }).join('');
 }
 
+/* ---------- QR 사진 ---------- */
+const qrCache = new Map(); // fileId -> dataURL | 'loading'
+async function loadQr(t, id) {
+  if (qrCache.has(id)) return qrCache.get(id);
+  qrCache.set(id, 'loading');
+  try {
+    const s = await getDoc(doc(db, 'trips', t.id, 'files', id));
+    qrCache.set(id, s.exists() ? s.data().data : null);
+  } catch (e) { console.error(e); qrCache.delete(id); }
+  return qrCache.get(id);
+}
+function loadQrThumbs(t) {
+  const ids = S.flights.flatMap((f) => f.qrIds || []).filter((id) => !qrCache.has(id));
+  if (!ids.length) return;
+  Promise.all(ids.map((id) => loadQr(t, id))).then(() => { if (S.tab === 'flight') render(); });
+}
+async function openQrViewer(flightId, idx) {
+  const t = trip(); const f = S.flights.find((x) => x.id === flightId); if (!f) return;
+  const ids = f.qrIds || []; if (!ids.length) return;
+  let k = Math.min(idx, ids.length - 1);
+  const v = document.createElement('div'); v.className = 'qrviewer'; v.id = 'qrviewer';
+  const show = async () => {
+    v.innerHTML = `<div class="qv-top"><span>${esc([f.flightNo, f.from && f.to ? f.from + '→' + f.to : ''].filter(Boolean).join(' · '))} ${ids.length > 1 ? `(${k + 1}/${ids.length})` : ''}</span><button class="qv-x" data-q="x">닫기</button></div>
+      <div class="qv-img"><span class="muted">불러오는 중…</span></div>
+      <div class="qv-hint">화면 밝기를 최대로 올리고 보여주세요</div>
+      ${ids.length > 1 ? '<div class="qv-nav"><button data-q="prev">‹ 이전</button><button data-q="next">다음 ›</button></div>' : ''}`;
+    const src = await loadQr(t, ids[k]);
+    const box = v.querySelector('.qv-img'); if (box) box.innerHTML = src ? `<img src="${src}" alt="체크인 QR">` : '<span class="muted">사진을 불러오지 못했어요</span>';
+  };
+  v.addEventListener('click', (e) => {
+    const q = e.target.closest('[data-q]')?.dataset.q;
+    if (q === 'x') { v.remove(); document.body.classList.remove('noscroll'); }
+    else if (q === 'prev') { k = (k - 1 + ids.length) % ids.length; show(); }
+    else if (q === 'next') { k = (k + 1) % ids.length; show(); }
+  });
+  document.body.appendChild(v); document.body.classList.add('noscroll'); show();
+}
+
 /* ---------- money ---------- */
-function toKRW(t, e) { const a = Number(e.amount) || 0; return e.cur === 'KRW' ? a : a * (Number(t.rate) || 1); }
+function toKRW(t, e) {
+  const a = Number(e.amount) || 0;
+  return e.cur === 'KRW' ? a : a * (Number(e.rate) || Number(t.rate) || 1);
+}
+const rateLabel = (cur, perOne) => `${rateUnit(cur)} ${cur} = ${num((Number(perOne) || 0) * rateUnit(cur))}원`;
 function viewMoney(t) {
   const list = [...S.expenses].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
   const total = list.reduce((s, e) => s + toKRW(t, e), 0);
@@ -304,7 +409,7 @@ function viewMoney(t) {
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const n = (t.people || []).length || 1;
   const groups = {}; list.forEach((e) => { (groups[e.date || '날짜 없음'] ||= []).push(e); });
-  return `<div class="sum"><div class="lbl">총 지출 ${t.currency && t.currency !== 'KRW' ? `· 1 ${esc(t.currency)} = ${esc(t.rate || '?')}원` : ''}</div>
+  return `<div class="sum"><div class="lbl">총 지출 ${t.currency && t.currency !== 'KRW' ? `· 기본 환율 ${esc(rateLabel(t.currency, t.rate))}` : ''}</div>
     <div class="big">${won(total)}</div>
     <div class="bars">${total ? cats.map(([c, v]) => `<div style="width:${(v / total) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
     <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / n)}</span>` : ''}</div></div>
@@ -313,7 +418,7 @@ function viewMoney(t) {
       const col = ECATS[e.cat] || '#888'; const local = e.cur !== 'KRW' && t.currency && t.currency !== 'KRW';
       return `<button class="exp" data-act="editExp" data-id="${esc(e.id)}">
         <div class="ico" style="background:${col}22;color:${col}">${esc((e.cat || '기타').slice(0, 2))}</div>
-        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${esc(e.payer || '?')} 결제 · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}</div></div>
+        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${esc(e.payer || '?')} 결제 · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
         <div class="amt">${local ? `${num(e.amount)} ${esc(t.currency)}<small>${won(toKRW(t, e))}</small>` : won(e.amount)}</div></button>`;
     }).join('')}`).join('')
     : '<div class="empty"><b>기록된 지출이 없어요</b>쓴 돈을 바로바로 적어 두면 정산이 쉬워요.</div>'}`;
@@ -391,19 +496,29 @@ function tripForm(t) {
     <div class="two"><label class="f"><span>출발</span><input class="inp" type="date" name="start" value="${esc(t.start)}"></label>
       <label class="f"><span>도착</span><input class="inp" type="date" name="end" value="${esc(t.end)}"></label></div>
     <div class="two"><label class="f"><span>현지 통화</span><select class="inp" name="currency">${CURRENCIES.map((c) => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-      <label class="f"><span>환율 (1단위 = 원)</span><input class="inp" type="number" step="any" inputmode="decimal" name="rate" value="${esc(t.rate)}"><div class="hint">엔화면 1엔 기준 (예: 9.2)</div></label></div>
+      <label class="f"><span id="rateLbl">기본 환율</span><input class="inp" type="number" step="any" inputmode="decimal" name="rate" value="${esc(String(Math.round((Number(t.rate) || 1) * rateUnit(t.currency) * 10000) / 10000))}"><div class="hint" id="rateHint"></div></label></div>
+    <label class="f"><span>장소 사이 기본 이동수단</span>${pills('move', Object.values(MOVES).map((m) => m[0] + ' ' + m[1]), (MOVES[t.defaultMove || 'transit'] || MOVES.transit).slice(0, 2).join(' '))}<div class="hint">일정 화면에서 구간마다 바꿀 수도 있어요.</div></label>
     <label class="f"><span>같이 가는 사람 (정산용, 쉼표로 구분)</span><input class="inp" name="people" value="${esc((t.people || []).join(', '))}" placeholder="예: 진주, 민지, 수아"></label>
     ${isNew ? '' : `<div class="card soft"><h3>동행인 초대</h3>
       <p class="small muted">링크를 받은 사람이 구글 로그인하면 이 여행을 같이 보고 수정할 수 있어요.</p>
       <div class="small" style="margin:6px 0">참여 중: ${joined.map(esc).join(', ') || '-'}</div>
       <button class="btn ghost block" data-x="invite">초대 링크 만들기</button><div id="invOut"></div></div>`}
     <div class="rowbtns">${isOwner ? '<button class="btn danger" data-x="del">삭제</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    const v = fval(sh);
+    const v = fval(sh); wirePills(sh);
+    const rateUi = () => {
+      const cur = v('currency'); const unit = rateUnit(cur);
+      sh.querySelector('#rateLbl').textContent = cur === 'KRW' ? '기본 환율' : `기본 환율 (${unit} ${cur} = ? 원)`;
+      sh.querySelector('#rateHint').textContent = cur === 'KRW' ? '원화 여행이면 신경 안 써도 돼요' : unit === 100 ? `예: 100엔 = 920원이면 920` : `예: 1 ${cur} = 1,400원이면 1400`;
+    };
+    rateUi(); sh.querySelector('[name=currency]').addEventListener('change', rateUi);
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('name')) return toast('여행 이름을 적어 주세요');
       let start = v('start'), end = v('end'); if (start && end && end < start) [start, end] = [end, start];
+      const mvLabel = pillVal(sh, 'move')[0] || '';
+      const defaultMove = Object.keys(MOVES).find((k) => MOVES[k].slice(0, 2).join(' ') === mvLabel) || 'transit';
       const data = {
-        name: v('name'), city: v('city'), start, end: end || start, currency: v('currency'), rate: Number(v('rate')) || 1,
+        name: v('name'), city: v('city'), start, end: end || start, currency: v('currency'),
+        rate: (Number(v('rate')) || 1) / rateUnit(v('currency')), defaultMove,
         people: [...new Set(v('people').split(/[,，]/).map((s) => s.trim()).filter(Boolean))],
       };
       closeSheet();
@@ -436,7 +551,7 @@ function tripForm(t) {
 async function deleteTrip(t) {
   const id = t.id; openTrip(null);
   await write(async () => {
-    for (const name of ['items', 'expenses', 'flights']) {
+    for (const name of ['items', 'expenses', 'flights', 'files']) {
       const snap = await getDocs(collection(db, 'trips', id, name));
       let batch = writeBatch(db); let n = 0;
       for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }
@@ -508,8 +623,38 @@ function flightForm(t, f) {
     <div class="two"><label class="f"><span>터미널</span><input class="inp" name="terminal" value="${esc(f.terminal)}" placeholder="예: T1"></label>
       <label class="f"><span>수하물</span><input class="inp" name="baggage" value="${esc(f.baggage)}" placeholder="예: 15kg"></label></div>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="체크인 시간, 탑승 게이트…">${esc(f.memo)}</textarea></label>
+    <div class="f"><span class="flbl">체크인 QR · 모바일 탑승권 사진 (최대 4장)</span>
+      <div class="qredit" id="qrEdit"></div>
+      <label class="btn ghost block" style="margin-top:8px">📷 사진 추가<input type="file" accept="image/*" multiple hidden id="qrFile"></label>
+      <div class="hint">캡처한 QR이나 탑승권 화면을 넣어두면 공항에서 바로 꺼내 볼 수 있어요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); const v = fval(sh);
+    // 사진 목록: 기존(id) + 새로 넣은 것(data) — 저장 누를 때 반영
+    let qrs = (f.qrIds || []).map((id) => ({ id, data: qrCache.get(id) && qrCache.get(id) !== 'loading' ? qrCache.get(id) : null }));
+    const removed = [];
+    const drawQr = () => {
+      sh.querySelector('#qrEdit').innerHTML = qrs.map((q, k) => `<div class="qrthumb">${q.data ? `<img src="${q.data}" alt="">` : '<span>QR</span>'}<button type="button" class="qrdel" data-k="${k}" aria-label="삭제">×</button></div>`).join('');
+      sh.querySelectorAll('.qrdel').forEach((b) => b.onclick = () => { const [q] = qrs.splice(Number(b.dataset.k), 1); if (q.id && !q.isNew) removed.push(q.id); drawQr(); });
+    };
+    drawQr();
+    qrs.filter((q) => !q.data).forEach((q) => loadQr(t, q.id).then((d) => { q.data = d; drawQr(); }));
+    sh.querySelector('#qrFile').addEventListener('change', async (ev) => {
+      const files = [...ev.target.files].slice(0, 4 - qrs.length);
+      if (!files.length) return toast('사진은 4장까지 넣을 수 있어요');
+      for (const file of files) {
+        try { qrs.push({ id: uid(), data: await compressImage(file), isNew: true }); }
+        catch { toast('사진을 읽지 못했어요'); }
+      }
+      ev.target.value = ''; drawQr();
+    });
+    const saveQrs = async (flightId) => {
+      for (const q of qrs.filter((x) => x.isNew)) {
+        await setDoc(doc(db, 'trips', t.id, 'files', q.id), { flightId, data: q.data, createdAt: Date.now(), by: S.user.uid });
+        qrCache.set(q.id, q.data);
+      }
+      for (const id of removed) { await deleteDoc(doc(db, 'trips', t.id, 'files', id)); qrCache.delete(id); }
+      return qrs.map((q) => q.id);
+    };
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('depAt')) return toast('출발 일시를 넣어 주세요');
       const data = {
@@ -517,11 +662,22 @@ function flightForm(t, f) {
         from: v('from').toUpperCase(), to: v('to').toUpperCase(), depAt: v('depAt'), arrAt: v('arrAt'),
         bookingRef: v('bookingRef').toUpperCase(), seat: v('seat'), terminal: v('terminal'), baggage: v('baggage'), memo: v('memo'),
       };
+      const fid = isNew ? uid() : f.id;
+      const btn = sh.querySelector('[data-x=save]'); btn.disabled = true; btn.textContent = '저장 중…';
+      await write(async () => {
+        data.qrIds = await saveQrs(fid);
+        if (isNew) await setDoc(doc(db, 'trips', t.id, 'flights', fid), { ...data, createdAt: Date.now(), by: S.user.uid });
+        else await updateDoc(doc(db, 'trips', t.id, 'flights', fid), data);
+      });
       closeSheet();
-      if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'flights', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
-      else await write(() => updateDoc(doc(db, 'trips', t.id, 'flights', f.id), data));
     };
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => { closeSheet(); write(() => deleteDoc(doc(db, 'trips', t.id, 'flights', f.id))); });
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => {
+      closeSheet();
+      write(async () => {
+        for (const id of f.qrIds || []) await deleteDoc(doc(db, 'trips', t.id, 'files', id));
+        await deleteDoc(doc(db, 'trips', t.id, 'flights', f.id));
+      });
+    });
   });
 }
 
@@ -536,17 +692,42 @@ function expForm(t, e) {
     <label class="f"><span>내용</span><input class="inp" name="title" value="${esc(e.title)}" placeholder="예: 이치란 라멘"></label>
     <div class="two"><label class="f" style="flex:2"><span>금액</span><input class="inp mono" type="number" step="any" inputmode="decimal" name="amount" value="${esc(e.amount)}" placeholder="0"></label>
       <label class="f"><span>통화</span>${pills('cur', curs, e.cur || curs[0])}</label></div>
+    <div id="rateBox"></div>
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ECATS), e.cat || '기타')}</label>
     <label class="f"><span>결제한 사람</span>${pills('payer', people, e.payer)}</label>
     <label class="f"><span>나눌 사람</span>${pills('split', people, e.split || people, true)}</label>
     <label class="f"><span>날짜</span><input class="inp" type="date" name="date" value="${esc(e.date)}"></label>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); const v = fval(sh);
+    // 외화일 때: 이 지출에 적용할 환율 (카드 결제 환율 등) — 기본값은 여행 설정 환율
+    let rateTyped = e.rate ? String(Math.round(e.rate * rateUnit(e.cur) * 10000) / 10000) : '';
+    const rateBox = sh.querySelector('#rateBox');
+    const curNow = () => pillVal(sh, 'cur')[0] || curs[0];
+    const preview = () => {
+      const cur = curNow(); const unit = rateUnit(cur); const amt = Number(sh.querySelector('[name=amount]').value) || 0;
+      const r = (Number(sh.querySelector('[name=rate]')?.value) || (Number(t.rate) || 0) * unit) / unit;
+      const p = sh.querySelector('#ratePrev'); if (p) p.textContent = amt ? `≈ ${won(amt * r)}` : '';
+    };
+    const drawRate = () => {
+      const cur = curNow();
+      if (cur === 'KRW') { rateBox.innerHTML = ''; return; }
+      const unit = rateUnit(cur);
+      rateBox.innerHTML = `<label class="f"><span>환율 (${unit} ${esc(cur)} = ? 원)</span>
+        <div class="two" style="align-items:center"><input class="inp mono" type="number" step="any" inputmode="decimal" name="rate" value="${esc(rateTyped)}" placeholder="${esc(String(Math.round((Number(t.rate) || 0) * unit * 100) / 100))}">
+        <b id="ratePrev" class="mono" style="flex:1;text-align:right"></b></div>
+        <div class="hint">비워두면 여행 기본 환율(${esc(rateLabel(cur, t.rate))})로 계산해요. 카드 결제 환율을 넣으면 정산이 더 정확해요.</div></label>`;
+      rateBox.querySelector('[name=rate]').addEventListener('input', (ev) => { rateTyped = ev.target.value; preview(); });
+      preview();
+    };
+    drawRate();
+    sh.querySelector('[data-pills=cur]').addEventListener('click', () => setTimeout(drawRate));
+    sh.querySelector('[name=amount]').addEventListener('input', preview);
     sh.querySelector('[data-x=save]').onclick = async () => {
       const amount = Number(v('amount'));
       if (!v('title') || !(amount > 0)) return toast('내용과 금액을 확인해 주세요');
       const split = pillVal(sh, 'split'); if (!split.length) return toast('나눌 사람을 한 명 이상 골라 주세요');
-      const data = { title: v('title'), amount, cur: pillVal(sh, 'cur')[0] || curs[0], cat: pillVal(sh, 'cat')[0] || '기타', payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
+      const cur = curNow(); const rIn = Number(sh.querySelector('[name=rate]')?.value);
+      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
       closeSheet();
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
       else await write(() => updateDoc(doc(db, 'trips', t.id, 'expenses', e.id), data));
@@ -585,8 +766,27 @@ document.addEventListener('click', (ev) => {
     case 'newExp': expForm(t, null); break;
     case 'editExp': expForm(t, S.expenses.find((x) => x.id === id)); break;
     case 'copy': copy(el.dataset.text); break;
+    case 'noop': { const inp = el.querySelector('input'); try { inp?.showPicker?.(); } catch { inp?.focus(); } break; }
+    case 'qrview': ev.stopPropagation(); openQrViewer(el.dataset.flight, Number(el.dataset.idx || 0)); break;
   }
 }, true);
+
+document.addEventListener('change', (ev) => {
+  const t = trip(); if (!t) return;
+  const ti = ev.target.closest('.time-in');
+  if (ti) {
+    const id = ti.dataset.time;
+    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { time: ti.value || '' }));
+    return;
+  }
+  const sel = ev.target.closest('.segsel');
+  if (sel) {
+    const id = sel.dataset.id;
+    const it = S.items.find((x) => x.id === id); if (it) it.moveMode = sel.value; // 즉시 반영
+    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { moveMode: sel.value }));
+    render();
+  }
+});
 
 window.addEventListener('scroll', () => $('hdr')?.classList.toggle('scrolled', scrollY > 4), { passive: true });
 render();
