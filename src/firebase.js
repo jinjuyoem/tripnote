@@ -2,11 +2,12 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect,
   getRedirectResult, onAuthStateChanged, signOut,
+  reauthenticateWithPopup, reauthenticateWithRedirect, deleteUser,
 } from 'firebase/auth';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
-  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs,
+  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs, deleteField,
 } from 'firebase/firestore';
 
 const env = import.meta.env;
@@ -52,7 +53,19 @@ export async function login() {
 export const logout = () => signOut(auth);
 export const watchAuth = (cb) => { getRedirectResult(auth).catch(() => {}); return onAuthStateChanged(auth, cb); };
 
+/** 탈퇴 전 본인 확인(최근 로그인 필요). 팝업이 막히면 리디렉트 → 돌아와서 이어서 진행 */
+export async function reauth() {
+  const u = auth.currentUser;
+  if (isStandalone() || isMobile()) { await reauthenticateWithRedirect(u, provider); return 'redirect'; }
+  try { await reauthenticateWithPopup(u, provider); return 'ok'; }
+  catch (e) {
+    if (e?.code === 'auth/popup-blocked') { await reauthenticateWithRedirect(u, provider); return 'redirect'; }
+    throw e;
+  }
+}
+export const deleteMe = () => deleteUser(auth.currentUser);
+
 export {
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
-  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs,
+  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs, deleteField,
 };

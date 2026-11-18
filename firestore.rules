@@ -14,15 +14,23 @@ service cloud.firestore {
       allow delete: if signedIn() && isMember(resource.data.tripId);
     }
 
+    // 프로필(이름·사진): 로그인한 사람은 보기, 본인만 수정
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
     match /trips/{tripId} {
       allow read: if signedIn() && request.auth.uid in resource.data.members;
       allow create: if signedIn()
                     && request.resource.data.ownerId == request.auth.uid
                     && request.resource.data.members == [request.auth.uid];
       allow update: if signedIn() && (
-        // 이미 참여 중인 사람: 수정 가능 (단, 소유자 변경은 불가)
+        // 이미 참여 중인 사람: 수정 가능 (방장 변경은 방장만, 남은 참여자에게만)
         (request.auth.uid in resource.data.members
-          && request.resource.data.ownerId == resource.data.ownerId)
+          && (request.resource.data.ownerId == resource.data.ownerId
+              || (resource.data.ownerId == request.auth.uid
+                  && request.resource.data.ownerId in request.resource.data.members)))
         ||
         // 초대 링크로 참여: 본인만 멤버에 추가, 유효한 초대 코드 필요
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberNames', 'lastJoinCode'])

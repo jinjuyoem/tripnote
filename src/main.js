@@ -1,10 +1,11 @@
 import './style.css';
 import {
-  auth, db, login, logout, watchAuth,
+  auth, db, login, logout, watchAuth, reauth, deleteMe,
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
-  getDoc, arrayUnion, writeBatch, getDocs,
+  getDoc, arrayUnion, writeBatch, getDocs, deleteField,
 } from './firebase.js';
 import { createMap, mountPlaceSearch, mapsEnabled, computeRoute } from './maps.js';
+import { tripWeather, geocodeCity } from './weather.js';
 import {
   esc, uid, randCode, won, num, md, hm, parseD, fmtD, tripDays, dday,
   ICATS, ECATS, DAYCOLORS, CURRENCIES, toast, copy,
@@ -17,14 +18,38 @@ const S = {
   trips: [], tripsLoaded: false,
   tripId: null, items: [], expenses: [], flights: [],
   tab: 'plan', day: null, mapAll: false,
-  unsubTrips: null, unsubSub: [],
+  unsubTrips: null, unsubSub: [], unsubMe: null,
+  profiles: new Map(), // uid -> {name, photo}
+  weather: {}, weatherFor: null,
 };
+const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
 let pendingJoin = params.get('join');
 
 const $ = (id) => document.getElementById(id);
 const trip = () => S.trips.find((t) => t.id === S.tripId);
-const me = () => S.user?.displayName || S.user?.email?.split('@')[0] || '나';
+const me = () => S.profiles.get(S.user?.uid)?.name || S.user?.displayName || S.user?.email?.split('@')[0] || '나';
+
+/* 프로필 사진: 직접 올린 사진 > 구글 사진 > 이름 첫 글자 */
+const AV_COLORS = ['#E2552D', '#2D6BE2', '#2F7D5B', '#9B3A93', '#D79A16', '#0E8A9A'];
+function avatar(uid, size = 32, fallbackName = '') {
+  const p = S.profiles.get(uid) || {};
+  const name = p.name || (uid === S.user?.uid ? me() : fallbackName) || '?';
+  const photo = p.photo || (uid === S.user?.uid && !p.noGooglePhoto ? S.user.photoURL : null);
+  const col = AV_COLORS[[...uid].reduce((s, c) => s + c.charCodeAt(0), 0) % AV_COLORS.length];
+  return photo
+    ? `<img class="av" src="${esc(photo)}" alt="${esc(name)}" style="width:${size}px;height:${size}px" referrerpolicy="no-referrer">`
+    : `<span class="av" style="width:${size}px;height:${size}px;background:${col};font-size:${Math.round(size * 0.42)}px">${esc([...name][0] || '?')}</span>`;
+}
+async function loadProfiles(uids) {
+  const need = uids.filter((u) => !S.profiles.has(u));
+  if (!need.length) return;
+  await Promise.all(need.map(async (u) => {
+    try { const s = await getDoc(doc(db, 'users', u)); S.profiles.set(u, s.exists() ? s.data() : {}); }
+    catch { S.profiles.set(u, {}); }
+  }));
+  render();
+}
 
 /* ---------------- shell ---------------- */
 document.querySelector('#app').innerHTML = `
@@ -51,9 +76,11 @@ $('mapToggle').onclick = () => { S.mapAll = !S.mapAll; render(); };
 /* ---------------- auth ---------------- */
 watchAuth(async (u) => {
   S.user = u; S.authReady = true;
-  S.unsubTrips?.(); S.unsubSub.forEach((f) => f()); S.unsubSub = [];
+  S.unsubTrips?.(); S.unsubSub.forEach((f) => f()); S.unsubSub = []; S.unsubMe?.();
   S.trips = []; S.tripsLoaded = false; S.tripId = null;
+  if (u && localStorage.getItem(DELETE_FLAG)) { localStorage.removeItem(DELETE_FLAG); render(); return doDeleteAccount(); }
   if (u) {
+    S.unsubMe = onSnapshot(doc(db, 'users', u.uid), (s) => { S.profiles.set(u.uid, s.exists() ? s.data() : {}); render(); }, () => {});
     S.unsubTrips = onSnapshot(
       query(collection(db, 'trips'), where('members', 'array-contains', u.uid)),
       (snap) => {
@@ -98,6 +125,7 @@ function openTrip(id) {
       S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() })); render();
     }, (e) => console.error(name, e));
     S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'));
+    const t = trip(); if (t) loadProfiles(t.members || []);
   }
   render(); window.scrollTo(0, 0);
 }
@@ -140,7 +168,7 @@ function viewLogin() {
 
 function viewHome() {
   showMap(false); $('banner').innerHTML = '';
-  $('hdr').innerHTML = `<h1>여행노트</h1><button class="iconbtn" data-act="account" aria-label="계정">${I.user}</button>`;
+  $('hdr').innerHTML = `<h1>여행노트</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
   const list = [...S.trips].sort((a, b) => (b.start || '').localeCompare(a.start || ''));
   const up = list.filter((t) => dday(t) !== '완료'), past = list.filter((t) => dday(t) === '완료');
   const card = (t) => `<button class="ticket" data-act="open" data-id="${esc(t.id)}">
@@ -172,13 +200,13 @@ function viewTrip(t) {
       ${t.city ? `<span class="chip">📍 ${esc(t.city)}</span>` : ''}
       ${t.start ? `<span class="chip">${esc(md(t.start))}${t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : ''}</span>` : ''}
       ${dday(t) ? `<span class="chip accent">${esc(dday(t))}</span>` : ''}
-      ${(t.people || []).map((m) => `<span class="chip">${esc(m)}</span>`).join('')}
+      <button class="avstack" data-act="editTrip" aria-label="참여자">${(t.members || []).slice(0, 5).map((u) => avatar(u, 26, t.memberNames?.[u])).join('')}${(t.members || []).length > 5 ? `<span class="av more">+${t.members.length - 5}</span>` : ''}</button>
     </div>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('')}</div>
     ${body}</div>`;
   const fab = { plan: ['newItem', '+ 일정 추가'], flight: ['newFlight', '+ 항공권 추가'], money: ['newExp', '+ 지출 추가'] }[S.tab];
   $('fabhost').innerHTML = fab ? `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>` : '';
-  if (S.tab === 'plan') { drawPlanMap(t, days); fillSegments(t); } else showMap(false);
+  if (S.tab === 'plan') { drawPlanMap(t, days); fillSegments(t); loadWeather(t, days); } else showMap(false);
   if (S.tab === 'flight') loadQrThumbs(t);
 }
 
@@ -218,12 +246,37 @@ function viewPlan(t, days) {
   // 위치 있는 장소끼리 바로 앞 장소 → 이 장소 구간
   const prevOf = new Map(); let last = null;
   items.forEach((i) => { if (ll(i)) { if (last) prevOf.set(i.id, last); last = i; } });
+  const W = S.weatherFor === t.id ? S.weather : {};
+  const wx = W[S.day];
   return `<div class="days">${days.map((d, idx) => {
-    const c = dayItems(d).length; return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span></button>`;
+    const c = dayItems(d).length; const w = W[d];
+    return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span>${w ? `<i class="dwx">${w.emoji} ${Math.round(w.max)}°</i>` : ''}</button>`;
   }).join('')}</div>
+  ${wx ? `<div class="wxbar ${wx.kind}"><span class="wxe">${wx.emoji}</span><div><b>${esc(wx.text || '')} ${Math.round(wx.max)}° / ${Math.round(wx.min)}°</b>
+      <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
   ${rows.length ? `<div class="timeline">${rows.map((r) => r.kind === 'flight' ? flightRow(r.f)
     : (prevOf.has(r.i.id) ? segRow(t, prevOf.get(r.i.id), r.i) : '') + itemRow(t, r.i, pinNo.get(r.i.id))).join('')}</div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
+}
+
+/* ---------- 날씨 ---------- */
+let wxLoading = null;
+async function loadWeather(t, days) {
+  const key = t.id + '|' + days[0] + '|' + days[days.length - 1] + '|' + (t.geo ? t.geo.lat : '') + '|' + t.city;
+  if (wxLoading === key) return; wxLoading = key;
+  try {
+    let geo = t.geo;
+    if (!geo) {
+      const it = S.items.find((i) => ll(i));
+      geo = it ? { lat: it.lat, lng: it.lng } : await geocodeCity(t.city);
+      if (geo) updateDoc(doc(db, 'trips', t.id), { geo }).catch(() => {});
+    }
+    if (!geo) return;
+    const w = await tripWeather(geo, days);
+    if (S.tripId !== t.id) return;
+    S.weather = w; S.weatherFor = t.id;
+    if (Object.keys(w).length) render();
+  } catch (e) { console.warn(e); }
 }
 
 /* ---------- 이동 구간 (거리·시간) ---------- */
@@ -507,7 +560,7 @@ function tripForm(t) {
     <label class="f"><span>같이 가는 사람 (정산용, 쉼표로 구분)</span><input class="inp" name="people" value="${esc((t.people || []).join(', '))}" placeholder="예: 진주, 민지, 수아"></label>
     ${isNew ? '' : `<div class="card soft"><h3>동행인 초대</h3>
       <p class="small muted">링크를 받은 사람이 구글 로그인하면 이 여행을 같이 보고 수정할 수 있어요.</p>
-      <div class="small" style="margin:6px 0">참여 중: ${joined.map(esc).join(', ') || '-'}</div>
+      <div class="joined">${(t.members || []).map((u) => `<span class="jm">${avatar(u, 24, t.memberNames?.[u])}${esc(S.profiles.get(u)?.name || t.memberNames?.[u] || '?')}${u === t.ownerId ? ' <small>(방장)</small>' : ''}</span>`).join('') || '-'}</div>
       <button class="btn ghost block" data-x="invite">초대 링크 만들기</button><div id="invOut"></div></div>`}
     <div class="rowbtns">${isOwner ? '<button class="btn danger" data-x="del">삭제</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh); wirePills(sh);
@@ -527,6 +580,7 @@ function tripForm(t) {
         rate: (Number(v('rate')) || 1) / rateUnit(v('currency')), defaultMove,
         people: [...new Set(v('people').split(/[,，]/).map((s) => s.trim()).filter(Boolean))],
       };
+      if (!isNew && data.city !== t.city) data.geo = null; // 도시 바뀌면 날씨 위치 다시 찾기
       closeSheet();
       if (isNew) {
         const id = uid();
@@ -554,18 +608,20 @@ function tripForm(t) {
     sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${t.name}' 여행을 삭제할까요? 일정·항공권·가계부가 모두 지워지고 되돌릴 수 없어요.`, '삭제', () => deleteTrip(t)));
   });
 }
+async function deleteTripData(t) {
+  const id = t.id;
+  for (const name of ['items', 'expenses', 'flights', 'files']) {
+    const snap = await getDocs(collection(db, 'trips', id, name));
+    let batch = writeBatch(db); let n = 0;
+    for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }
+    await batch.commit();
+  }
+  if (t.inviteCode) await deleteDoc(doc(db, 'invites', t.inviteCode));
+  await deleteDoc(doc(db, 'trips', id));
+}
 async function deleteTrip(t) {
-  const id = t.id; openTrip(null);
-  await write(async () => {
-    for (const name of ['items', 'expenses', 'flights', 'files']) {
-      const snap = await getDocs(collection(db, 'trips', id, name));
-      let batch = writeBatch(db); let n = 0;
-      for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }
-      await batch.commit();
-    }
-    if (t.inviteCode) await deleteDoc(doc(db, 'invites', t.inviteCode));
-    await deleteDoc(doc(db, 'trips', id));
-  });
+  openTrip(null);
+  await write(() => deleteTripData(t));
   toast('삭제했어요');
 }
 
@@ -743,11 +799,97 @@ function expForm(t, e) {
 }
 
 function accountSheet() {
-  openSheet(`<h2>계정</h2><p class="muted" style="margin-bottom:14px">${esc(S.user.displayName || '')}<br><span class="small">${esc(S.user.email || '')}</span></p>
-    <div class="rowbtns"><button class="btn ghost" data-x="close">닫기</button><button class="btn danger" data-x="out">로그아웃</button></div>`, (sh) => {
-    sh.querySelector('[data-x=close]').onclick = closeSheet;
+  const uidMe = S.user.uid;
+  const cur = S.profiles.get(uidMe) || {};
+  let photo = cur.photo || null; let noGoogle = !!cur.noGooglePhoto;
+  openSheet(`<h2>내 프로필</h2>
+    <div class="profile-top">
+      <div id="pfAv" class="pf-av"></div>
+      <div class="pf-btns">
+        <label class="btn ghost small">📷 사진 바꾸기<input type="file" accept="image/*" hidden id="pfFile"></label>
+        <button type="button" class="btn ghost small" data-x="google">${S.user.photoURL ? '구글 사진 쓰기' : '기본 이미지'}</button>
+        <button type="button" class="btn ghost small" data-x="none">사진 없이</button>
+      </div>
+    </div>
+    <label class="f"><span>이름 (동행인에게 보이는 이름)</span><input class="inp" name="pname" value="${esc(me())}"></label>
+    <p class="small muted" style="margin:-4px 0 14px">${esc(S.user.email || '')} 로 로그인 중</p>
+    <div class="rowbtns"><button class="btn ghost" data-x="out">로그아웃</button><button class="btn dark" data-x="save">저장</button></div>
+    <div class="danger-zone"><b>계정 탈퇴</b><p class="small muted">내 로그인 정보와 프로필이 삭제돼요. 나만 있는 여행은 통째로 지워지고, 동행인과 함께 쓰는 여행에서는 나만 빠져요(동행인 데이터는 그대로 남아요).</p>
+      <button class="btn danger block" data-x="delete">탈퇴하기</button></div>`, (sh) => {
+    const drawAv = () => {
+      const p = photo || (!noGoogle ? S.user.photoURL : null);
+      sh.querySelector('#pfAv').innerHTML = p ? `<img src="${esc(p)}" alt="" referrerpolicy="no-referrer">` : `<span>${esc([...me()][0] || '?')}</span>`;
+    };
+    drawAv();
+    sh.querySelector('#pfFile').addEventListener('change', async (ev) => {
+      const f = ev.target.files[0]; if (!f) return;
+      try { photo = await compressAvatar(f); noGoogle = true; drawAv(); } catch { toast('사진을 읽지 못했어요'); }
+    });
+    sh.querySelector('[data-x=google]').onclick = () => { photo = null; noGoogle = false; drawAv(); };
+    sh.querySelector('[data-x=none]').onclick = () => { photo = null; noGoogle = true; drawAv(); };
     sh.querySelector('[data-x=out]').onclick = () => { closeSheet(); logout(); };
+    sh.querySelector('[data-x=save]').onclick = async () => {
+      const name = sh.querySelector('[name=pname]').value.trim() || S.user.displayName || '나';
+      closeSheet();
+      await write(async () => {
+        await setDoc(doc(db, 'users', uidMe), { name, photo: photo || null, noGooglePhoto: noGoogle, updatedAt: Date.now() });
+        // 참여 중인 여행들에 보이는 이름도 갱신
+        for (const t of S.trips) await updateDoc(doc(db, 'trips', t.id), { [`memberNames.${uidMe}`]: name });
+      });
+      toast('프로필을 저장했어요');
+    };
+    sh.querySelector('[data-x=delete]').onclick = () => askConfirm('정말 탈퇴할까요? 되돌릴 수 없어요.', '탈퇴하기', startDeleteAccount);
   });
+}
+async function compressAvatar(file) {
+  // 정사각형으로 잘라 256px
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const s = Math.min(img.width, img.height); const c = document.createElement('canvas'); c.width = c.height = 256;
+    c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 256, 256);
+    return c.toDataURL('image/jpeg', 0.85);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/* ---------- 계정 탈퇴 ---------- */
+async function startDeleteAccount() {
+  try {
+    localStorage.setItem(DELETE_FLAG, '1'); // 리디렉트로 본인 확인하면 돌아와서 이어서 진행
+    const r = await reauth();
+    if (r === 'redirect') return;
+    localStorage.removeItem(DELETE_FLAG);
+    await doDeleteAccount();
+  } catch (e) {
+    localStorage.removeItem(DELETE_FLAG);
+    console.error(e); toast('본인 확인을 하지 못해서 탈퇴를 멈췄어요');
+  }
+}
+async function doDeleteAccount() {
+  const u = S.user; if (!u) return;
+  $('view').innerHTML = '<div class="empty"><b>탈퇴 처리 중…</b>잠시만 기다려 주세요.</div>';
+  try {
+    S.unsubTrips?.(); S.unsubSub.forEach((f) => f()); S.unsubSub = []; S.unsubMe?.();
+    const snap = await getDocs(query(collection(db, 'trips'), where('members', 'array-contains', u.uid)));
+    for (const d of snap.docs) {
+      const t = { id: d.id, ...d.data() };
+      const others = (t.members || []).filter((x) => x !== u.uid);
+      if (!others.length) await deleteTripData(t);
+      else {
+        await updateDoc(doc(db, 'trips', t.id), {
+          members: others, [`memberNames.${u.uid}`]: deleteField(),
+          ...(t.ownerId === u.uid ? { ownerId: others[0] } : {}),
+        });
+      }
+    }
+    await deleteDoc(doc(db, 'users', u.uid));
+    await deleteMe();
+    toast('탈퇴가 완료됐어요. 그동안 고마웠어요!');
+  } catch (e) {
+    console.error(e);
+    toast(e?.code === 'auth/requires-recent-login' ? '보안을 위해 다시 로그인한 뒤 탈퇴해 주세요' : '탈퇴 중 문제가 생겼어요. 다시 시도해 주세요');
+    location.reload();
+  }
 }
 
 /* ---------------- events ---------------- */

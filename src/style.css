@@ -79,6 +79,31 @@ label.itime .time-in{position:absolute;inset:0;width:100%;height:100%;opacity:0;
 .segsel{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);border-radius:99px;padding:3px 8px;color:var(--ink);-webkit-appearance:none;appearance:none}
 .seginfo b{color:var(--ink);font-weight:600}
 .seglink{margin-left:auto;font-size:11px;color:var(--sky);text-decoration:none;white-space:nowrap}
+/* 프로필 */
+.av{display:inline-grid;place-items:center;border-radius:50%;color:#fff;font-weight:700;object-fit:cover;flex:none;border:2px solid var(--paper);background:#ccc}
+.avbtn{border-radius:50%;flex:none;line-height:0}
+.avbtn .av{border-color:var(--line)}
+.avstack{display:inline-flex;align-items:center;margin-left:auto;padding-left:8px}
+.avstack .av{margin-left:-8px}
+.av.more{width:26px;height:26px;background:var(--ink2);font-size:11px}
+.joined{display:flex;flex-wrap:wrap;gap:6px 12px;margin:8px 0}
+.jm{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.jm .av{border:0}
+.jm small{color:var(--ink2)}
+.profile-top{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.pf-av{width:84px;height:84px;border-radius:50%;overflow:hidden;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:34px;font-weight:700;flex:none}
+.pf-av img{width:100%;height:100%;object-fit:cover}
+.pf-btns{display:flex;flex-direction:column;gap:6px;flex:1}
+.pf-btns .btn{padding:8px 12px;font-size:13px;justify-content:flex-start}
+.danger-zone{margin-top:22px;padding-top:16px;border-top:1px dashed var(--line)}
+.danger-zone p{margin:4px 0 10px;line-height:1.5}
+/* 날씨 */
+.dwx{display:block;font-style:normal;font-size:11px;margin-top:2px}
+.wxbar{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#EAF2FF,#FFF7E8);border:1px solid #DDE6F5;border-radius:12px;padding:10px 14px;margin:0 0 12px}
+.wxbar.lastyear{background:#F4F1EA;border-color:var(--line)}
+.wxe{font-size:28px;line-height:1}
+.wxbar b{display:block;font-size:15px}
+.wxbar span{font-size:12px;color:var(--ink2)}
 /* QR */
 .qrrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
 .qrthumb{position:relative;width:56px;height:56px;border-radius:10px;border:1px solid var(--line);background:#fff;overflow:hidden;display:grid;place-items:center;font-size:11px;color:var(--ink2);flex:none}
