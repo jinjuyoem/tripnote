@@ -182,6 +182,37 @@ function viewLogin() {
   $('loginBtn').onclick = () => login().catch((e) => { console.error(e); toast('로그인하지 못했어요'); });
 }
 
+const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 안 돼도 괜찮음 */ } };
+/** 사용 방법 (홈 화면에 추가하는 법 + 기능 안내) */
+function guideSheet() {
+  const ua = navigator.userAgent || '';
+  const ios = /iPhone|iPad|iPod/.test(ua) || (ua.includes('Mac') && 'ontouchend' in document);
+  const android = /Android/.test(ua);
+  const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER|Line\//.test(ua);
+  const iosSteps = `<ol class="gsteps"><li><b>Safari</b>로 열기 <span>(크롬·카톡 안에서는 안 돼요)</span></li><li>아래 가운데 <b>공유 버튼 <span class="gk">□↑</span></b> 누르기</li><li>아래로 내려서 <b>'홈 화면에 추가'</b> → <b>추가</b></li></ol>`;
+  const andSteps = `<ol class="gsteps"><li><b>크롬</b>으로 열기</li><li>오른쪽 위 <b class="gk">⋮</b> 누르기</li><li><b>'앱 설치'</b> 또는 <b>'홈 화면에 추가'</b> 누르기</li></ol>`;
+  openSheet(`<h2>📖 여행노트 사용 방법</h2>
+    <div class="gsec"><h3>📲 앱처럼 설치하기</h3>
+      ${isStandalone() ? '<p class="gok">✅ 지금 앱으로 쓰고 있어요!</p>' : ''}
+      ${inApp ? '<p class="gwarn">카톡·인스타 안에서 열었어요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 먼저 눌러 주세요.</p>' : ''}
+      ${ios ? `<div class="gdev on">🍎 아이폰</div>${iosSteps}<details><summary>안드로이드는?</summary>${andSteps}</details>`
+        : android ? `<div class="gdev on">🤖 안드로이드</div>${andSteps}<details><summary>아이폰은?</summary>${iosSteps}</details>`
+        : `<div class="gdev">🍎 아이폰</div>${iosSteps}<div class="gdev">🤖 안드로이드</div>${andSteps}`}
+      <p class="small muted">홈 화면 아이콘으로 처음 열면 구글 로그인을 한 번 더 해 주세요. 업데이트는 앱을 껐다 켜면 자동으로 돼요.</p></div>
+    <div class="gsec"><h3>✈️ 이렇게 써요</h3><ul class="gtips">
+      <li><span>👥</span><div><b>동행 초대</b>여행 설정 → 초대 링크를 보내면 같이 보고 수정해요. 앱 안 쓰는 친구는 이름만 추가해도 돼요.</div></li>
+      <li><span>🗓</span><div><b>일정</b>+ 일정 추가로 장소를 검색하면 지도에 핀이 찍히고, 장소 사이 이동 시간이 자동으로 나와요.</div></li>
+      <li><span>👆</span><div><b>순서 바꾸기</b>일정을 꾹 누르고 끌어서 옮겨요. 항공편도 옮길 수 있어요.</div></li>
+      <li><span>↙↘</span><div><b>따로 다니기</b>일정의 '누구랑?'에서 일부만 고르면 사람별 칸으로 나뉘어요. '○○ 일정' 버튼으로 한 사람 동선만 볼 수 있어요.</div></li>
+      <li><span>🛫</span><div><b>항공권</b>탑승자와 체크인 QR 사진을 넣어 두면 공항에서 크게 볼 수 있어요.</div></li>
+      <li><span>💸</span><div><b>가계부·정산</b>일정에 쓴 돈을 적으면 가계부에 들어가고, 정산 탭에서 누가 누구한테 얼마 보낼지 알려줘요.</div></li>
+      <li><span>⭐</span><div><b>별점</b>다녀온 일정에서 '완료'를 누르고 별을 끌어서 매겨요.</div></li>
+      <li><span>🎞</span><div><b>리캡</b>여행 설정 → 리캡에서 어워드를 보고, 후기와 서로에게 한마디를 남겨요.</div></li>
+    </ul></div>
+    <button class="btn dark block" data-x="ok">알겠어요</button>`, (sh) => { sh.querySelector('[data-x=ok]').onclick = closeSheet; });
+}
 function viewHome() {
   showMap(false); $('banner').innerHTML = '';
   $('hdr').innerHTML = `<h1>여행노트</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
@@ -191,7 +222,10 @@ function viewHome() {
       <div style="min-width:0"><div class="city">${esc(t.city || 'TRIP')}</div><div class="name">${esc(t.name)}</div>
       <div class="small muted">${t.start ? esc(md(t.start)) + (t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : '') : '날짜 미정'} · ${(t.members || []).length}명 참여</div></div>
       <div class="dd"><b>${esc(dday(t) || '—')}</b><span class="small muted">${esc(t.currency || 'KRW')}</span></div></button>`;
-  $('view').innerHTML = `<div class="wrap">${
+  const showInstall = !isStandalone() && !lsGet('tn_install_hide');
+  $('view').innerHTML = `<div class="wrap">${showInstall ? `<div class="installcard"><span class="ic-emoji">📲</span>
+      <div style="flex:1;min-width:0"><b>홈 화면에 추가하면 앱처럼 써요</b><span>주소창 없이 아이콘 눌러서 바로 열려요</span></div>
+      <button class="btn dark small" data-act="guide">방법 보기</button><button class="ic-x" data-act="hideInstall" aria-label="닫기">✕</button></div>` : ''}${
     !S.tripsLoaded ? '<div class="empty">불러오는 중…</div>'
       : list.length ? up.map(card).join('') + (past.length ? `<div class="dategrp">지난 여행</div>${past.map(card).join('')}` : '')
         : '<div class="empty"><b>아직 여행이 없어요</b>첫 여행을 만들어 일정과 가계부를 시작해 보세요.</div>'
@@ -268,64 +302,114 @@ function insertPos(d, time, excludeId) {
 }
 
 /** 드래그로 옮긴 결과(새 순서의 id 목록) 저장 — 순서가 시간보다 우선 */
-async function placeItem(t, id, newIds) {
-  const all = dayItems(S.day); const m = all.find((i) => i.id === id); if (!m) return;
-  const order = newIds.map((x) => all.find((i) => i.id === x)).filter(Boolean);
-  // 순서값이 없는 예전 일정이 섞여 있으면 화면 순서대로 먼저 채움
-  if (!order.every((i) => typeof i.pos === 'number')) {
-    order.forEach((i, k) => { i.pos = (k + 1) * 1000; });
-    render();
-    return write(async () => { for (const i of order) await updateDoc(doc(db, 'trips', t.id, 'items', i.id), { pos: i.pos }); });
+/** 끌어 놓은 뒤 순서 저장: 일정은 pos, 항공편은 그 자리(posDep/posArr)에 고정 */
+async function placeRows(t, tokens, movedTok) {
+  const d = S.day; const all = dayItems(d);
+  const fls = dayFlights(d);
+  const order = tokens.map((tk) => (tk.startsWith('F:')
+    ? { f: fls.find((f) => `F:${f.id}~${f._kind}` === tk), tk }
+    : { i: all.find((i) => i.id === tk), tk })).filter((x) => x.f || x.i);
+  const ups = [];
+  const items = order.filter((x) => x.i).map((x) => x.i);
+  if (!items.every((i) => typeof i.pos === 'number')) {
+    // 순서값이 없는 예전 일정이 섞여 있으면 화면 순서대로 채움
+    items.forEach((i, k) => { i.pos = (k + 1) * 1000; ups.push(['items', i.id, { pos: i.pos }]); });
+  } else if (!movedTok.startsWith('F:')) {
+    const k = items.findIndex((i) => i.id === movedTok); const m = items[k];
+    const P = items[k - 1], N = items[k + 1];
+    const pos = P && N ? (P.pos + N.pos) / 2 : P ? P.pos + 1000 : N ? N.pos - 1000 : 1000;
+    if (m && pos !== m.pos) { m.pos = pos; ups.push(['items', m.id, { pos }]); }
   }
-  const k = order.findIndex((i) => i.id === id);
-  const P = order[k - 1], N = order[k + 1];
-  const pos = P && N ? (P.pos + N.pos) / 2 : P ? P.pos + 1000 : N ? N.pos - 1000 : 1000;
-  if (pos === m.pos) return;
-  m.pos = pos; render();
-  write(() => updateDoc(doc(db, 'trips', t.id, 'items', m.id), { pos }));
+  // 항공편: 앞뒤 일정 사이 값으로 자리 고정 (같은 틈에 여러 개면 나눠서)
+  order.forEach((x, k) => {
+    if (!x.f) return;
+    let pk = k - 1; while (pk >= 0 && !order[pk].i) pk--;
+    let nk = k + 1; while (nk < order.length && !order[nk].i) nk++;
+    const P = pk >= 0 ? order[pk].i.pos : null, N = nk < order.length ? order[nk].i.pos : null;
+    const lo = P ?? (N != null ? N - 1000 : 0), hi = N ?? lo + 1000;
+    const gap = order.slice(pk + 1, nk); const idx = gap.indexOf(x);
+    const ap = lo + ((hi - lo) * (idx + 1)) / (gap.length + 1);
+    const key = x.f._kind === 'dep' ? 'posDep' : 'posArr';
+    const src = S.flights.find((f) => f.id === x.f.id);
+    if (src && src[key] !== ap) { src[key] = ap; ups.push(['flights', src.id, { [key]: ap }]); }
+  });
+  render();
+  if (ups.length) write(async () => { for (const [c, id, data] of ups) await updateDoc(doc(db, 'trips', t.id, c, id), data); });
 }
 
-/* 드래그: 손잡이(≡)를 잡고 위아래로 */
-document.addEventListener('pointerdown', (ev) => {
-  const h = ev.target.closest('.draghandle'); if (!h) return;
-  const card = h.closest('[data-drag]'); const box = card?.parentElement; if (!card || !box) return;
-  ev.preventDefault();
-  const t = trip(); const id = card.dataset.drag;
-  const startY = ev.clientY; let lastY = startY; let raf = 0;
-  card.classList.add('dragging'); h.setPointerCapture?.(ev.pointerId);
-  const rect = card.getBoundingClientRect();
-  const ph = document.createElement('div'); ph.className = 'dragph'; ph.style.height = rect.height + 'px';
+/* 순서 바꾸기: 일정(또는 항공편)을 꾹 누르면 바로 끌어서 이동. 순서 모드에선 ≡ 손잡이로도 */
+let dragOn = false; let suppressClickUntil = 0;
+document.addEventListener('touchmove', (e) => { if (dragOn && e.cancelable) e.preventDefault(); }, { passive: false });
+document.addEventListener('contextmenu', (e) => { if (e.target.closest('.timeline [data-lp]') || dragOn) e.preventDefault(); });
+document.addEventListener('click', (e) => { if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); } }, true);
+function startDrag(card, clientY, fromLongPress) {
+  const box = card.parentElement; const t = trip(); if (!box || !t) return;
+  const tok = card.dataset.drag;
+  dragOn = true;
+  const rect0 = card.getBoundingClientRect();
+  const offY = fromLongPress ? rect0.height / 2 : clientY - rect0.top;
+  let lastY = clientY; let raf = 0;
+  card.classList.add('dragging');
+  const ph = document.createElement('div'); ph.className = 'dragph'; ph.style.height = rect0.height + 'px';
   card.after(ph);
   // 카드를 화면에 띄워서 손가락을 따라오게
-  Object.assign(card.style, { position: 'fixed', top: rect.top + 'px', left: rect.left + 'px', width: rect.width + 'px', zIndex: 30, margin: 0 });
-  const move = (e) => {
-    lastY = e.clientY;
-    card.style.transform = `translateY(${lastY - startY}px)`;
-    // 자리 찾기: 다른 카드들의 가운데와 비교
-    const others = [...box.querySelectorAll('[data-drag]')].filter((x) => x !== card);
+  Object.assign(card.style, { position: 'fixed', top: '0px', left: rect0.left + 'px', width: rect0.width + 'px', zIndex: 30, margin: 0 });
+  const placeCard = () => { card.style.transform = `translateY(${lastY - offY}px)`; };
+  const findSpot = () => {
+    const others = [...box.querySelectorAll(':scope > [data-drag]')].filter((x) => x !== card);
     let placed = false;
     for (const o of others) {
       const r = o.getBoundingClientRect();
       if (lastY < r.top + r.height / 2) { if (ph.nextElementSibling !== o) o.before(ph); placed = true; break; }
     }
     if (!placed && others.length) { const lastEl = others[others.length - 1]; if (lastEl.nextElementSibling !== ph) lastEl.after(ph); }
+  };
+  placeCard(); findSpot();
+  const move = (e) => {
+    lastY = e.clientY; placeCard(); findSpot();
     // 화면 끝에 가면 자동 스크롤
     cancelAnimationFrame(raf);
     const edge = 70; const vh = window.innerHeight;
     if (lastY > vh - edge || lastY < edge) {
-      const step = () => { window.scrollBy(0, lastY > vh - edge ? 8 : -8); raf = requestAnimationFrame(step); };
+      const step = () => { window.scrollBy(0, lastY > vh - edge ? 8 : -8); findSpot(); raf = requestAnimationFrame(step); };
       raf = requestAnimationFrame(step);
     }
   };
   const up = () => {
-    cancelAnimationFrame(raf);
+    cancelAnimationFrame(raf); dragOn = false; suppressClickUntil = Date.now() + 400;
     document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
     ph.replaceWith(card); card.classList.remove('dragging');
     Object.assign(card.style, { transform: '', position: '', top: '', left: '', width: '', zIndex: '', margin: '' });
-    const ids = [...box.querySelectorAll('[data-drag]')].map((x) => x.dataset.drag);
-    placeItem(t, id, ids);
+    const toks = [...box.querySelectorAll(':scope > [data-drag]')].map((x) => x.dataset.drag);
+    if (fromLongPress) S.ordering = false; // 꾹 눌러서 시작한 경우 놓으면 원래 화면으로
+    placeRows(t, toks, tok);
   };
   document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+}
+// 순서 모드의 ≡ 손잡이
+document.addEventListener('pointerdown', (ev) => {
+  const h = ev.target.closest('.draghandle'); if (!h) return;
+  const card = h.closest('[data-drag]'); if (!card) return;
+  ev.preventDefault(); startDrag(card, ev.clientY, false);
+});
+// 꾹 누르기 (0.45초, 손가락이 움직이면 취소 → 스크롤)
+document.addEventListener('pointerdown', (ev) => {
+  if (S.ordering || ev.button > 0) return;
+  const el = ev.target.closest('.timeline [data-lp]'); if (!el) return;
+  if (ev.target.closest('.segsel, .rate, a, .tbtn, select, input')) return;
+  const tok = el.dataset.lp; const x0 = ev.clientX, y0 = ev.clientY; let y = y0;
+  el.classList.add('pressing');
+  const cancel = () => { clearTimeout(timer); el.classList.remove('pressing'); document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', cancel); document.removeEventListener('pointercancel', cancel); };
+  const mv = (e) => { y = e.clientY; if (Math.hypot(e.clientX - x0, e.clientY - y0) > 8) cancel(); };
+  const timer = setTimeout(() => {
+    cancel();
+    navigator.vibrate?.(15);
+    S.ordering = true; render();
+    const card = document.querySelector(`.timeline > [data-drag="${CSS.escape(tok)}"]`);
+    if (!card) { S.ordering = false; render(); return; }
+    startDrag(card, y, true);
+  }, 450);
+  document.addEventListener('pointermove', mv); document.addEventListener('pointerup', cancel); document.addEventListener('pointercancel', cancel);
 });
 function dayFlights(d) {
   const out = [];
@@ -348,9 +432,20 @@ function routeUrl(t, items) {
 
 /** 그날 화면에 나오는 줄(일정 + 항공편) */
 function planRows(d) {
-  const rows = dayItems(d).map((i) => ({ kind: 'item', time: i.time, i }));
-  // 항공편 줄은 '그 시간 이하인 마지막 시간 있는 일정' 바로 뒤에 (없으면 맨 위)
-  [...dayFlights(d)].sort((a, b) => (a.time || '').localeCompare(b.time || '')).forEach((f) => {
+  const items = dayItems(d);
+  const rows = items.map((i) => ({ kind: 'item', time: i.time, i }));
+  const fl = [...dayFlights(d)].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  // 순서를 직접 바꾼 항공편은 그 자리(pos)에 고정
+  const keyed = items.every((i) => typeof i.pos === 'number');
+  const anch = (f) => (keyed ? (f._kind === 'dep' ? f.posDep : f.posArr) : undefined);
+  fl.filter((f) => typeof anch(f) === 'number').forEach((f) => {
+    const ap = anch(f);
+    let at = rows.findIndex((r) => (r.kind === 'item' ? r.i.pos : r.ap) > ap);
+    if (at < 0) at = rows.length;
+    rows.splice(at, 0, { kind: 'flight', time: f.time, f, ap });
+  });
+  // 나머지 항공편 줄은 '그 시간 이하인 마지막 시간 있는 일정' 바로 뒤에 (없으면 맨 위)
+  fl.filter((f) => typeof anch(f) !== 'number').forEach((f) => {
     let at = 0;
     rows.forEach((r, k) => { if (r.time && f.time && r.time <= f.time) at = k + 1; });
     rows.splice(at, 0, { kind: 'flight', time: f.time, f });
@@ -373,14 +468,14 @@ function rowStop(r) {
 }
 /** 정산·동행 인원 = 초대 링크로 참여한 사람 */
 const peopleOf = (t) => {
-  const n = [...new Set((t?.members || []).map((u) => t.memberNames?.[u] || nameOf(t, u)).filter(Boolean))];
+  const n = [...new Set([...(t?.members || []).map((u) => t.memberNames?.[u] || nameOf(t, u)), ...(t?.guests || [])].filter(Boolean))];
   return n.length ? n : [me()];
 };
 const myName = (t) => t?.memberNames?.[S.user?.uid] || me();
 /** 이 줄에 가는 사람들 (따로 지정 없으면 다 같이) */
 function rowWho(t, r) {
   const people = peopleOf(t);
-  const w = ((r.kind === 'item' ? r.i.who : r.f.who) || []).filter((n) => people.includes(n));
+  const w = ((r.kind === 'item' ? r.i.who : flightWho(t, r.f)) || []).filter((n) => people.includes(n));
   return w.length ? w : people;
 }
 /** 일부만 가는 줄인지 (따로 다니는 시간) */
@@ -487,7 +582,7 @@ function viewPlan(t, days) {
   let n = 0;
   const pinNo = new Map(); items.forEach((i) => { if (ll(i)) pinNo.set(i.id, ++n); });
   stopMap.clear(); shownSegs = [];
-  const rowHtml = (r, seg) => (seg ? segRow(t, seg[0], seg[1]) : '') + (r.kind === 'flight' ? flightRow(r.f) : itemRow(t, r.i, pinNo.get(r.i.id), items));
+  const rowHtml = (r, seg) => (seg ? segRow(t, seg[0], seg[1]) : '') + (r.kind === 'flight' ? flightRow(r.f, S.ordering) : itemRow(t, r.i, pinNo.get(r.i.id), items));
   let body = '';
   if (S.ordering) body = allRows.map((r) => rowHtml(r, null)).join('');
   else if (va) {
@@ -509,7 +604,7 @@ function viewPlan(t, days) {
       <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
   ${va ? `<div class="vabar"><b>${nameAvatar(t, va, 22)}${esc(va)} 일정으로 보는 중</b>${viewAsBtns(t, va)}</div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
-  <div class="planbar">${S.ordering ? '' : '<button class="ordbtn" data-act="newMemo">📝 메모 추가</button>'}${items.length > 1 ? `<button class="ordbtn ${S.ordering ? 'on' : ''}" data-act="ordering">${S.ordering ? '✓ 완료' : '↕ 순서 바꾸기'}</button>` : ''}</div>
+  <div class="planbar">${items.length > 1 ? '<span class="lphint">꾹 눌러서 순서 바꾸기</span>' : ''}<button class="ordbtn" data-act="newMemo">📝 메모 추가</button></div>
   ${body ? `<div class="timeline">${body}</div>`
     : va && hasFork ? `<div class="empty"><b>${esc(va)} 일정이 없어요</b></div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
@@ -522,10 +617,10 @@ function forkHtml(t, b, pinNo) {
   const mini = (r) => {
     if (r.kind === 'flight') {
       const f = r.f; const dep = f._kind === 'dep';
-      return `<div class="mini fl" data-act="tab" data-v="flight"><span>${esc(r.time || '')}</span><b>${dep ? '🛫 ' + esc(f.from || '') + ' 출발' : '🛬 ' + esc(f.to || '') + ' 도착'}</b></div>`;
+      return `<div class="mini fl" data-act="tab" data-v="flight" data-lp="F:${esc(f.id)}~${esc(f._kind)}"><span>${esc(r.time || '')}</span><b>${dep ? '🛫 ' + esc(f.from || '') + ' 출발' : '🛬 ' + esc(f.to || '') + ' 도착'}</b></div>`;
     }
     const i = r.i; const c = (ICATS[i.cat] || ICATS.기타)[1]; const no = pinNo.get(i.id);
-    return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}"><span>${no ? `<i class="mno">${no}</i>` : ''}${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}</div>`;
+    return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><span>${no ? `<i class="mno">${no}</i>` : ''}${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}</div>`;
   };
   const nextTitle = next ? (next.kind === 'item' ? (next.i.kind === 'memo' ? '' : next.i.title) : '') : '';
   return `<div class="fork">
@@ -853,14 +948,20 @@ async function fillSegments(t) {
 }
 const saveStop = (t, st, data) => updateDoc(doc(db, 'trips', t.id, st._col, st._doc), data).catch(() => {});
 
-function flightRow(f) {
+function flightRow(f, ordering) {
+  const tok = `F:${f.id}~${f._kind}`;
   const dep = f._kind === 'dep';
   const title = dep ? `🛫 ${esc(f.from || '?')} 출발 → ${esc(f.to || '?')}` : `🛬 ${esc(f.to || '?')} 도착 (${esc(f.from || '?')}에서)`;
   const sub = [f.airline, f.flightNo].filter(Boolean).join(' ')
     + (dep && f.terminal ? ` · ${f.terminal}` : '')
     + (dep && f.arrAt ? ` · 도착 ${hm(f.arrAt)}` : '')
     + (!dep && f.depAt ? ` · 출발 ${hm(f.depAt)}` : '');
-  return `<div class="item flightrow ${dep ? '' : 'arr'}" style="--cat:#1F2A44" data-act="tab" data-v="flight">
+  if (ordering) {
+    return `<div class="item ordering flightrow ${dep ? '' : 'arr'}" style="--cat:#1F2A44" data-drag="${esc(tok)}"><div class="irow">
+      <div class="itime">${esc(f.time || '--:--')}</div><div style="flex:1;min-width:0"><div class="ititle">${title}</div><div class="iaddr">${esc(sub)}</div></div>
+      <div class="draghandle" aria-label="끌어서 순서 바꾸기">≡</div></div></div>`;
+  }
+  return `<div class="item flightrow ${dep ? '' : 'arr'}" style="--cat:#1F2A44" data-act="tab" data-v="flight" data-lp="${esc(tok)}">
     <div class="irow"><div class="itime">${esc(f.time || '--:--')}</div>
     <div style="flex:1;min-width:0"><div class="ititle">${title}</div>
     <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div>
@@ -916,9 +1017,9 @@ function itemRow(t, i, no, list) {
     </div></div>`;
   }
   if (i.kind === 'memo') {
-    return `<div class="item memo" style="--cat:${c[1]}" data-act="editMemo" data-id="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
+    return `<div class="item memo" style="--cat:${c[1]}" data-act="editMemo" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
   }
-  return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
+  return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" data-lp="${esc(i.id)}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
     ${i.done ? starsHtml(t, i) : ''}<div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
       <div style="flex:1;min-width:0"><div class="ititle">${no ? `<span class="pinno" style="background:${c[1]}">${no}</span>` : ''}${esc(i.title)}</div>
       ${i.address ? `<div class="iaddr">${esc(i.address)}</div>` : ''}
@@ -1242,9 +1343,25 @@ function tripForm(t) {
       <p class="small muted">링크를 받은 사람이 구글 로그인하면 이 여행을 같이 보고 수정할 수 있어요. 정산·'누구랑?'·탑승자는 여기 참여한 사람 기준이에요.</p>
       <div class="joined">${(t.members || []).map((u) => `<span class="jm">${avatar(u, 24, t.memberNames?.[u])}${esc(S.profiles.get(u)?.name || t.memberNames?.[u] || '?')}${u === t.ownerId ? ' <small>(방장)</small>' : ''}</span>`).join('') || '-'}</div>
       <button class="btn ghost block" data-x="invite">초대 링크 만들기</button><div id="invOut"></div></div>`}
+    <div class="card soft"><h3>로그인 안 하는 동행</h3>
+      <p class="small muted">앱을 안 쓰는 친구도 이름만 넣으면 정산·누구랑?·탑승자에 같이 나와요.</p>
+      <div class="joined" id="gList"></div>
+      <div class="gadd"><input class="inp" id="gName" placeholder="이름 (예: 수아)" maxlength="20"><button type="button" class="btn ghost" data-x="gadd">추가</button></div></div>
     ${isNew ? '' : '<button type="button" class="btn ghost block" data-x="recap" style="margin-bottom:10px">🎞 여행 리캡 보기</button>'}
     <div class="rowbtns">${isOwner ? '<button class="btn danger" data-x="del">삭제</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh); wirePills(sh);
+    const guests = [...(t.guests || [])];
+    const memberNm = (t.members || []).map((u) => t.memberNames?.[u]);
+    const drawG = () => { sh.querySelector('#gList').innerHTML = guests.map((g, k) => `<span class="jm">${nameAvatar(t, g, 24)}${esc(g)} <button type="button" class="gdel" data-g="${k}" aria-label="빼기">✕</button></span>`).join('') || '<span class="small muted">아직 없어요</span>'; };
+    drawG();
+    const addG = () => {
+      const inp = sh.querySelector('#gName'); const n = inp.value.trim(); if (!n) return;
+      if (guests.includes(n) || memberNm.includes(n) || (isNew && n === me())) return toast('이미 있는 이름이에요');
+      guests.push(n); inp.value = ''; drawG();
+    };
+    sh.querySelector('[data-x=gadd]').onclick = addG;
+    sh.querySelector('#gName').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addG(); } });
+    sh.querySelector('#gList').addEventListener('click', (e) => { const b = e.target.closest('.gdel'); if (b) { guests.splice(Number(b.dataset.g), 1); drawG(); } });
     sh.querySelector('[data-x=recap]')?.addEventListener('click', () => { closeSheet(); openRecap(t); });
     const rateUi = () => {
       const cur = v('currency'); const unit = rateUnit(cur);
@@ -1258,6 +1375,7 @@ function tripForm(t) {
       const data = {
         name: v('name'), city: v('city'), start, end: end || start, currency: v('currency'),
         rate: (Number(v('rate')) || 1) / rateUnit(v('currency')),
+        guests,
       };
       if (!isNew && data.city !== t.city) data.geo = null; // 도시 바뀌면 날씨 위치 다시 찾기
       closeSheet();
@@ -1408,7 +1526,7 @@ function flightForm(t, f) {
   const plusH = (dt, h) => { if (!dt) return ''; const d = new Date(dt + ':00'); d.setHours(d.getHours() + h); return `${fmtD(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
   const isReturn = S.flights.length > 0;
   const defDep = isReturn ? (t.end ? t.end + 'T15:00' : '') : (t.start ? t.start + 'T09:00' : '');
-  f = f || { kind: isReturn ? '오는편' : '가는편', airline: '', flightNo: '', from: '', to: '', depAt: defDep, arrAt: plusH(defDep, 2), bookingRef: '', seat: '', terminal: '', baggage: '', memo: '', who: [me()] };
+  f = f || { kind: isReturn ? '오는편' : '가는편', airline: '', flightNo: '', from: '', to: '', depAt: defDep, arrAt: plusH(defDep, 2), bookingRef: '', seat: '', terminal: '', baggage: '', memo: '', who: [myName(t)] };
   // 탑승자 후보: 정산용 이름 + 앱 참여자 이름 + 이미 지정된 사람
   const whoOpts = [...new Set([...peopleOf(t), ...(f.who || [])].filter(Boolean))];
   const whoSel = f.who || (f.by && t.memberNames?.[f.by] ? [t.memberNames[f.by]] : []);
@@ -1494,7 +1612,12 @@ function flightForm(t, f) {
       await write(async () => {
         data.qrIds = await saveQrs(fid);
         if (isNew) await setDoc(doc(db, 'trips', t.id, 'flights', fid), { ...data, createdAt: Date.now(), by: S.user.uid });
-        else await updateDoc(doc(db, 'trips', t.id, 'flights', fid), data);
+        else {
+          // 날짜·시간이 바뀌면 순서 고정을 풀고 다시 시간 기준으로
+          if (data.depAt !== f.depAt) data.posDep = null;
+          if (data.arrAt !== f.arrAt) data.posArr = null;
+          await updateDoc(doc(db, 'trips', t.id, 'flights', fid), data);
+        }
       });
       closeSheet();
     };
@@ -1576,6 +1699,7 @@ function accountSheet() {
     </div>
     <label class="f"><span>이름 (동행인에게 보이는 이름)</span><input class="inp" name="pname" value="${esc(me())}"></label>
     <p class="small muted" style="margin:-4px 0 14px">${esc(S.user.email || '')} 로 로그인 중</p>
+    <button type="button" class="btn ghost block" data-x="guide" style="margin-bottom:10px">📖 사용 방법 · 앱으로 설치하기</button>
     <div class="rowbtns"><button class="btn ghost" data-x="out">로그아웃</button><button class="btn dark" data-x="save">저장</button></div>
     <div class="danger-zone"><b>계정 탈퇴</b><p class="small muted">내 로그인 정보와 프로필이 삭제돼요. 나만 있는 여행은 통째로 지워지고, 동행인과 함께 쓰는 여행에서는 나만 빠져요(동행인 데이터는 그대로 남아요).</p>
       <button class="btn danger block" data-x="delete">탈퇴하기</button></div>`, (sh) => {
@@ -1591,6 +1715,7 @@ function accountSheet() {
     sh.querySelector('[data-x=google]').onclick = () => { photo = null; noGoogle = false; drawAv(); };
     sh.querySelector('[data-x=none]').onclick = () => { photo = null; noGoogle = true; drawAv(); };
     sh.querySelector('[data-x=out]').onclick = () => { closeSheet(); logout(); };
+    sh.querySelector('[data-x=guide]').onclick = () => guideSheet();
     sh.querySelector('[data-x=save]').onclick = async () => {
       const name = sh.querySelector('[name=pname]').value.trim() || S.user.displayName || '나';
       closeSheet();
@@ -1685,6 +1810,8 @@ document.addEventListener('click', (ev) => {
     case 'home': openTrip(null); break;
     case 'account': accountSheet(); break;
     case 'newTrip': tripForm(null); break;
+    case 'guide': guideSheet(); break;
+    case 'hideInstall': lsSet('tn_install_hide', '1'); render(); break;
     case 'editTrip': tripForm(t); break;
     case 'tab': S.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
     case 'day': S.day = el.dataset.v; S.mapAll = false; render(); break;

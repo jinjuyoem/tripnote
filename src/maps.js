@@ -95,13 +95,38 @@ export async function createMap(el) {
 }
 
 /** 공항 코드(KIX 등) → 좌표 */
+// 자주 가는 공항은 바로 좌표 (API 호출 없이)
+const AIRPORTS = {
+  ICN: [37.4602, 126.4407], GMP: [37.5583, 126.7906], PUS: [35.1795, 128.9382], CJU: [33.5104, 126.4914], TAE: [35.8941, 128.6589], CJJ: [36.7166, 127.4991],
+  KIX: [34.4347, 135.2440], ITM: [34.7855, 135.4382], NRT: [35.7720, 140.3929], HND: [35.5494, 139.7798], FUK: [33.5859, 130.4511], CTS: [42.7752, 141.6923],
+  OKA: [26.1958, 127.6459], NGO: [34.8584, 136.8054], KOJ: [31.8034, 130.7195], KMJ: [32.8373, 130.8551], OIT: [33.4794, 131.7372], SDJ: [38.1397, 140.9170],
+  TPE: [25.0797, 121.2342], TSA: [25.0694, 121.5525], KHH: [22.5771, 120.3500], HKG: [22.3080, 113.9185], MFM: [22.1496, 113.5915],
+  PVG: [31.1443, 121.8083], SHA: [31.1979, 121.3363], PEK: [40.0799, 116.6031], PKX: [39.5098, 116.4105], TAO: [36.3661, 120.0950], CAN: [23.3924, 113.2988],
+  BKK: [13.6900, 100.7501], DMK: [13.9126, 100.6068], CNX: [18.7668, 98.9626], HKT: [8.1132, 98.3169], SGN: [10.8188, 106.6520], HAN: [21.2187, 105.8042],
+  DAD: [16.0439, 108.1994], CXR: [11.9982, 109.2194], PQC: [10.1698, 103.9931], MNL: [14.5086, 121.0194], CEB: [10.3075, 123.9794], SIN: [1.3644, 103.9915],
+  KUL: [2.7456, 101.7099], DPS: [-8.7482, 115.1675], CGK: [-6.1256, 106.6559], GUM: [13.4834, 144.7960], SPN: [15.1190, 145.7290],
+  LAX: [33.9416, -118.4085], SFO: [37.6213, -122.3790], JFK: [40.6413, -73.7781], HNL: [21.3245, -157.9251], CDG: [49.0097, 2.5479], LHR: [51.4700, -0.4543],
+  FCO: [41.8003, 12.2389], BCN: [41.2974, 2.0833], FRA: [50.0379, 8.5622], IST: [41.2753, 28.7519], SYD: [-33.9399, 151.1753], DXB: [25.2532, 55.3657],
+};
 export async function geocodeAirport(code) {
-  if (!mapsEnabled || !code) return null;
+  if (!code) return null;
+  const c = String(code).trim().toUpperCase();
+  if (AIRPORTS[c]) return { lat: AIRPORTS[c][0], lng: AIRPORTS[c][1], code };
+  if (!mapsEnabled) return null;
   await bootstrap();
-  const { Geocoder } = await google.maps.importLibrary('geocoding');
-  const { results } = await new Geocoder().geocode({ address: `${code} airport` });
-  const r = results?.[0]; if (!r) return null;
-  return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng(), code };
+  try {
+    const { Geocoder } = await google.maps.importLibrary('geocoding');
+    const { results } = await new Geocoder().geocode({ address: `${code} airport` });
+    const r = results?.[0];
+    if (r) return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng(), code };
+  } catch (e) { console.warn('geocode 실패, 장소 검색으로 다시 시도', e); }
+  try {
+    const { Place } = await google.maps.importLibrary('places');
+    const { places } = await Place.searchByText({ textQuery: `${code} airport`, fields: ['location'], maxResultCount: 1 });
+    const loc = places?.[0]?.location;
+    if (loc) return { lat: loc.lat(), lng: loc.lng(), code };
+  } catch (e) { console.warn('공항 위치를 못 찾음', code, e); }
+  return null;
 }
 
 /** 두 지점 사이 거리·시간 (Routes API). mode: WALK | TRANSIT | DRIVE | BICYCLE */

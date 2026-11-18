@@ -389,3 +389,32 @@ textarea.inp{resize:vertical;min-height:64px}
 .rw-pick.names button{width:auto;height:auto;font:inherit;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:5px;padding:5px 10px 5px 5px;border-radius:99px}
 .rw-pick.names .av{border:0}
 .rc-write textarea{margin-bottom:8px}
+/* 꾹 눌러서 순서 바꾸기 */
+.timeline [data-lp]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.timeline [data-lp].pressing{transform:scale(.97);transition:transform .45s ease-out;box-shadow:0 0 0 2px var(--line)}
+.lphint{margin-right:auto;align-self:center;font-size:11px;color:var(--ink2)}
+.item.flightrow.ordering{background:#EEF1F7}
+/* 동행 직접 추가 */
+.gadd{display:flex;gap:6px;margin-top:8px}
+.gadd .inp{flex:1}
+.gdel{border:0;background:none;color:var(--ink2);font-size:11px;padding:0 0 0 4px;cursor:pointer}
+/* 홈: 설치 안내 */
+.installcard{display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#FFF3D6,#FFE6EA);border:1px solid var(--line);border-radius:16px;padding:12px;margin-bottom:12px}
+.installcard b{display:block;font-size:14px}
+.installcard span{font-size:12px;color:var(--ink2)}
+.ic-emoji{font-size:26px}
+.ic-x{border:0;background:none;color:var(--ink2);font-size:14px;cursor:pointer;padding:4px}
+/* 사용 방법 */
+.gsec{background:#FBF8F1;border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:12px}
+.gsec h3{font-size:15px;margin:0 0 8px}
+.gdev{font-size:13px;font-weight:700;margin:8px 0 4px}
+.gsteps{margin:0 0 6px;padding-left:20px;font-size:14px;line-height:1.7}
+.gsteps span{font-size:12px;color:var(--ink2)}
+.gk{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:6px;padding:0 6px;font-size:12px}
+.gsec details{font-size:13px;margin:4px 0 8px;color:var(--ink2)}
+.gok{background:var(--green-soft);color:var(--green);font-weight:700;border-radius:10px;padding:8px 10px;font-size:13px}
+.gwarn{background:#FFE9E3;color:#B4361B;border-radius:10px;padding:8px 10px;font-size:13px}
+.gtips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.gtips li{display:flex;gap:10px;font-size:13px;line-height:1.5;color:var(--ink2)}
+.gtips li>span{font-size:18px;width:24px;text-align:center;flex:none}
+.gtips b{display:block;color:var(--ink);font-size:14px}
