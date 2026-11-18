@@ -1331,9 +1331,14 @@ function checkinUrl(f) {
   return `https://www.google.com/search?q=${encodeURIComponent(`${name} 온라인 체크인`)}`;
 }
 function viewFlights() {
-  const list = sortFlights();
-  if (!list.length) return '<div class="empty"><b>등록된 항공권이 없어요</b>예약한 항공편을 넣어두면 일정에 자동으로 표시돼요.</div>';
-  return list.map((f) => {
+  const all = sortFlights();
+  if (!all.length) return '<div class="empty"><b>등록된 항공권이 없어요</b>예약한 항공편을 넣어두면 일정에 자동으로 표시돼요.</div>';
+  const tt = trip(); const mine = myName(tt);
+  const showMine = lsGet('tn_my_flights') === '1';
+  const list = showMine ? all.filter((f) => flightWho(tt, f).includes(mine)) : all;
+  const bar = peopleOf(tt).length > 1 ? `<div class="fltbar"><button class="fltb ${showMine ? '' : 'on'}" data-act="myFlights" data-v="0">전체 ${all.length}</button><button class="fltb ${showMine ? 'on' : ''}" data-act="myFlights" data-v="1">${nameAvatar(tt, mine, 18)}내 항공권 ${all.filter((f) => flightWho(tt, f).includes(mine)).length}</button></div>` : '';
+  if (!list.length) return bar + '<div class="empty"><b>내가 타는 항공권이 없어요</b>항공권 수정에서 탑승자에 나를 넣으면 여기 보여요.</div>';
+  return bar + list.map((f) => {
     const dur = f.depAt && f.arrAt ? Math.round((new Date(f.arrAt) - new Date(f.depAt)) / 6e4) : null;
     return `<div class="boarding">
       <div class="bp-top"><span class="bp-type">${esc(f.kind || '항공편')}</span><span class="small">${esc([f.airline, f.flightNo].filter(Boolean).join(' '))}</span></div>
@@ -2022,6 +2027,7 @@ document.addEventListener('click', (ev) => {
     case 'account': accountSheet(); break;
     case 'newTrip': tripForm(null); break;
     case 'guide': guideSheet(); break;
+    case 'myFlights': lsSet('tn_my_flights', el.dataset.v); render(); break;
     case 'segpick': ev.stopPropagation(); openSegPicker(el); break;
     case 'checkFlight': checkFlight(t, id, el); break;
     case 'taxi': { ev.stopPropagation(); const sg = stopMap.get(id); if (sg) taxiSheet(sg.from, sg.to); break; }
