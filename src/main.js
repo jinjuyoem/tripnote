@@ -1224,7 +1224,7 @@ function liveHtml(f) {
     <div class="live-g">
       <div><i>출발 ${esc(dd.iata || '')}</i>${tm(dd)}${dd.terminal || dd.gate ? `<small>${dd.terminal ? 'T' + esc(String(dd.terminal).replace(/^T/i, '')) : ''}${dd.gate ? ' · 게이트 ' + esc(dd.gate) : ''}</small>` : ''}</div>
       <div><i>도착 ${esc(aa.iata || '')}</i>${tm(aa)}${aa.terminal || aa.belt ? `<small>${aa.terminal ? 'T' + esc(String(aa.terminal).replace(/^T/i, '')) : ''}${aa.belt ? ' · 수하물 ' + esc(aa.belt) : ''}</small>` : ''}</div>
-    </div></div>`;
+    </div><div class="live-src">항공 정보 제공: AeroDataBox</div></div>`;
 }
 const agoText = (ms) => { if (!ms) return ''; const m = Math.round((Date.now() - ms) / 6e4); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`; };
 async function checkFlight(t, id, btn) {
@@ -1605,7 +1605,7 @@ function flightForm(t, f) {
     <label class="f"><span>탑승자 (이 비행기 타는 사람)</span>${pills('who', whoOpts, whoSel, true)}</label>
     <div class="two"><label class="f"><span>항공사</span><input class="inp" name="airline" value="${esc(f.airline)}" placeholder="예: 제주항공"></label>
       <label class="f"><span>편명</span><div class="fnrow"><input class="inp mono" name="flightNo" value="${esc(f.flightNo)}" placeholder="예: 7C1301" autocapitalize="characters"><button type="button" class="btn dark small" data-x="lookup">불러오기</button></div></label></div>
-    <div class="hint" style="margin:-6px 0 12px">출발 날짜를 고르고 편명 옆 <b>불러오기</b>를 누르면 공항·시간·터미널이 자동으로 채워져요.</div>
+    <div class="hint" style="margin:-6px 0 12px">출발 날짜를 고르고 편명 옆 <b>불러오기</b>를 누르면 공항·시간·터미널이 자동으로 채워져요. <span class="muted">(항공 정보: AeroDataBox)</span></div>
     <div class="two"><label class="f"><span>출발 공항</span><input class="inp mono" name="from" value="${esc(f.from)}" placeholder="ICN" autocapitalize="characters"></label>
       <label class="f"><span>도착 공항</span><input class="inp mono" name="to" value="${esc(f.to)}" placeholder="KIX" autocapitalize="characters"></label></div>
     <div class="f"><span class="flbl">출발 (출발지 현지 시각)</span><div class="two"><input class="inp" type="date" name="depDate" value="${esc((f.depAt || '').slice(0, 10))}">${timeField('depTime', (f.depAt || '').slice(11, 16), '출발 시간')}</div></div>

@@ -459,3 +459,4 @@ input[type=date].inp:not(:valid),input[type=date].inp[value=""]{color:var(--ink2
 .live-g s{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink2)}
 .live-g small{font-size:11px;color:var(--ink2)}
 .live-btn{font-weight:700}
+.live-src{margin-top:6px;font-size:10px;color:var(--ink2);text-align:right}
