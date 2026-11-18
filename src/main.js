@@ -48,6 +48,13 @@ function peopleChips(t, names) {
   const byName = {}; Object.entries(t?.memberNames || {}).forEach(([u, n]) => { byName[n] = u; byName[S.profiles.get(u)?.name || n] = u; });
   return names.map((n) => `<span class="pchip">${byName[n] ? avatar(byName[n], 18, n) : ''}${esc(n)}</span>`).join('');
 }
+/** 탑승자 이름 목록 (예전 항공권은 등록한 사람) */
+const flightWho = (t, f) => (f.who && f.who.length ? f.who : f.by && t?.memberNames?.[f.by] ? [nameOf(t, f.by)] : []);
+/** 탑승자: 큰 프로필 사진 + 이름 */
+function paxList(t, names) {
+  const byName = {}; Object.entries(t?.memberNames || {}).forEach(([u, n]) => { byName[n] = u; byName[S.profiles.get(u)?.name || n] = u; });
+  return names.map((n) => `<span class="pax">${byName[n] ? avatar(byName[n], 34, n) : `<span class="av" style="width:34px;height:34px;background:#8C8778;font-size:14px">${esc([...n][0] || '?')}</span>`}<b>${esc(n)}</b></span>`).join('');
+}
 async function loadProfiles(uids) {
   const need = uids.filter((u) => !S.profiles.has(u));
   if (!need.length) return;
@@ -364,14 +371,21 @@ function rowStop(r) {
     _col: 'flights', _doc: f.id, _mk: dep ? 'moveDep' : 'moveArr', _mmk: dep ? 'moveModeDep' : 'moveModeArr',
   };
 }
-/** 구간 목록 [from, to] — 비행 중인 구간(출발 공항 → …, … → 도착 공항)은 제외 */
+/** 일부만 가는 줄인지 (따로 다니는 시간) */
+function isPartialRow(t, r) {
+  const people = t?.people || []; if (people.length < 2) return false;
+  const w = (r.kind === 'item' ? r.i.who : r.f.who) || [];
+  const ww = w.filter((n) => people.includes(n));
+  return ww.length > 0 && ww.length < people.length;
+}
+/** 구간 목록 [from, to] — 비행 중인 구간, 따로 다니는 구간은 제외 */
 function daySegments(d) {
-  const st = planRows(d).map(rowStop).filter(Boolean);
-  const out = [];
-  for (let k = 1; k < st.length; k++) {
-    const a = st[k - 1], b = st[k];
-    if (a.air === 'dep' || b.air === 'arr') continue;
-    out.push([a, b]);
+  const t = trip(); const out = []; let prev = null;
+  for (const r of planRows(d)) {
+    if (isPartialRow(t, r)) { prev = null; continue; } // 갈라졌다 합쳐지면 이어서 계산 안 함
+    const st = rowStop(r); if (!st) continue;
+    if (prev && !(prev.air === 'dep' || st.air === 'arr')) out.push([prev, st]);
+    prev = st;
   }
   return out;
 }
@@ -408,8 +422,47 @@ function viewPlan(t, days) {
       <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
   <div class="planbar">${S.ordering ? '' : '<button class="ordbtn" data-act="newMemo">📝 메모 추가</button>'}${items.length > 1 ? `<button class="ordbtn ${S.ordering ? 'on' : ''}" data-act="ordering">${S.ordering ? '✓ 완료' : '↕ 순서 바꾸기'}</button>` : ''}</div>
-  ${rows.length ? `<div class="timeline">${rows.map((r) => segFor(r) + (r.kind === 'flight' ? flightRow(r.f) : itemRow(t, r.i, pinNo.get(r.i.id), items))).join('')}</div>`
+  ${rows.length ? `<div class="timeline">${timelineHtml(t, rows, segFor, pinNo, items)}</div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
+}
+
+/** 타임라인: 따로 다니는 연속 구간은 사람별 두 줄(갈래)로 */
+function timelineHtml(t, rows, segFor, pinNo, items) {
+  const rowHtml = (r) => segFor(r) + (r.kind === 'flight' ? flightRow(r.f) : itemRow(t, r.i, pinNo.get(r.i.id), items));
+  if (S.ordering) return rows.map(rowHtml).join('');
+  let html = '';
+  for (let k = 0; k < rows.length;) {
+    if (!isPartialRow(t, rows[k])) { html += rowHtml(rows[k]); k++; continue; }
+    let j = k; while (j < rows.length && isPartialRow(t, rows[j])) j++;
+    html += forkHtml(t, rows.slice(k, j), rows[j]);
+    k = j;
+  }
+  return html;
+}
+function forkHtml(t, grp, next) {
+  const people = t.people || [];
+  const whoOf = (r) => (r.kind === 'item' ? r.i.who : r.f.who) || [];
+  const union = people.filter((p) => grp.some((r) => whoOf(r).includes(p)));
+  const lanes = people.length <= 3 ? people : union;
+  const times = grp.map((r) => r.time).filter(Boolean);
+  const byName = {}; Object.entries(t.memberNames || {}).forEach(([u, n]) => { byName[n] = u; byName[S.profiles.get(u)?.name || n] = u; });
+  const av = (n) => (byName[n] ? avatar(byName[n], 22, n) : `<span class="av" style="width:22px;height:22px;background:#8C8778;font-size:10px">${esc([...n][0] || '?')}</span>`);
+  const mini = (r) => {
+    if (r.kind === 'flight') {
+      const f = r.f; const dep = f._kind === 'dep';
+      return `<div class="mini fl" data-act="tab" data-v="flight"><span>${esc(r.time || '')}</span><b>${dep ? '🛫 ' + esc(f.from || '') + ' 출발' : '🛬 ' + esc(f.to || '') + ' 도착'}</b></div>`;
+    }
+    const i = r.i; const c = (ICATS[i.cat] || ICATS.기타)[1];
+    return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}"><span>${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}</div>`;
+  };
+  const nextTitle = next ? (next.kind === 'item' ? (next.i.kind === 'memo' ? '' : next.i.title) : '') : '';
+  return `<div class="fork">
+    <div class="forkhead">↙↘ 따로 다니는 시간${times.length ? ` ${esc(times[0])}${times.length > 1 ? ' – ' + esc(times[times.length - 1]) : ''}` : ''}</div>
+    <div class="lanes" style="grid-template-columns:repeat(${lanes.length},minmax(0,1fr))">
+      ${lanes.map((p) => { const mine = grp.filter((r) => whoOf(r).includes(p)); return `<div class="lane"><h4>${av(p)}${esc(p)}</h4>${mine.length ? mine.map(mini).join('') : '<div class="lane-empty">자유 시간</div>'}</div>`; }).join('')}
+    </div>
+    ${next ? `<div class="meet">👥 ${next.time ? esc(next.time) + ' ' : ''}${nextTitle ? esc(nextTitle) + '에서 ' : ''}다시 같이</div>` : ''}
+  </div>`;
 }
 
 /* ---------- Day 요약 ---------- */
@@ -637,7 +690,7 @@ function flightRow(f) {
     <div class="irow"><div class="itime">${esc(f.time || '--:--')}</div>
     <div style="flex:1;min-width:0"><div class="ititle">${title}</div>
     <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div>
-    ${(f.who || []).length ? `<div class="bp-who small">${peopleChips(trip(), f.who)}</div>` : ''}</div></div></div>`;
+    ${(() => { const w = flightWho(trip(), f); return w.length ? `<div class="bp-who small">${peopleChips(trip(), w)}</div>` : ''; })()}</div></div></div>`;
 }
 function itemRow(t, i, no, list) {
   const c = i.kind === 'memo' ? ['#FFF6CC', '#C9A227'] : ICATS[i.cat] || ICATS.기타;
@@ -651,7 +704,7 @@ function itemRow(t, i, no, list) {
     }
     return `<div class="item ordering" data-drag="${esc(i.id)}" style="--cat:${c[1]}"><div class="irow">
       <div class="itime">${esc(i.time || '—')}</div>
-      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div><div class="iaddr">≡ 잡고 끌어서 이동</div></div>
+      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div>${i.who && i.who.length ? `<div class="iaddr">👤 ${esc(i.who.join(', '))}만</div>` : '<div class="iaddr">≡ 잡고 끌어서 이동</div>'}</div>
       <div class="draghandle" aria-label="끌어서 순서 바꾸기">≡</div>
     </div></div>`;
   }
@@ -817,7 +870,7 @@ function viewFlights() {
     const dur = f.depAt && f.arrAt ? Math.round((new Date(f.arrAt) - new Date(f.depAt)) / 6e4) : null;
     return `<div class="boarding">
       <div class="bp-top"><span class="bp-type">${esc(f.kind || '항공편')}</span><span class="small">${esc([f.airline, f.flightNo].filter(Boolean).join(' '))}</span></div>
-      ${(f.who || []).length ? `<div class="bp-who">${peopleChips(trip(), f.who)}</div>` : ''}
+      ${(() => { const tt = trip(); const w = flightWho(tt, f); return w.length ? `<div class="bp-pax"><span>탑승자 ${w.length}명</span><div>${paxList(tt, w)}</div></div>` : ''; })()}
       <div class="bp-route">
         <div><b>${esc(f.from || '---')}</b><span>${esc(fdate(f.depAt))}</span></div>
         <div class="bp-plane">${I.plane}${dur && dur > 0 && dur < 3000 ? `<small>약 ${Math.floor(dur / 60)}시간 ${dur % 60}분<br>(현지시각 기준)</small>` : ''}</div>
@@ -1060,15 +1113,22 @@ function itemForm(t, item) {
     <label class="f"><span>이름</span><input class="inp" name="title" value="${esc(item.title)}" placeholder="예: 도톤보리"></label>
     <div class="two"><label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === item.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
       <div class="f"><span class="flbl">시간</span>${timeField('time', item.time)}</div></div>
+    ${people.length > 1 ? `<label class="f"><span>누구랑? (따로 다니면 일부만 선택)</span>${pills('who', people, item.who && item.who.length ? item.who : people, true)}</label>` : ''}
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ICATS), item.cat || '관광')}</label>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="예약번호, 추천 메뉴, 영업시간…">${esc(item.memo)}</textarea></label>
     <label class="f"><span>링크 (선택)</span><input class="inp" name="link" value="${esc(item.link)}" placeholder="https://"></label>
     <div class="spendbox"><span class="flbl">💸 여기서 쓴 돈 (가계부에 자동 기록)</span>
       <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || spCurs[0])}</div>
-      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(me()) ? me() : people[0]))}</div>` : ''}
-      <div class="hint">나눌 사람은 모두로 기록돼요. 자세한 수정은 가계부에서.</div></div>
+      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(me()) ? me() : people[0]))}</div>
+      <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || item.who || people, true)}</div>` : ''}
+      <div class="hint">정산 탭에 바로 반영돼요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh);
+    // '누구랑?'을 바꾸면 돈 나눌 사람도 같이 맞춤 (지출이 아직 없을 때)
+    sh.querySelector('[data-pills=who]')?.addEventListener('click', () => setTimeout(() => {
+      if (linked) return; const w = pillVal(sh, 'who');
+      sh.querySelectorAll('[data-pills=ssplit] .pill').forEach((b) => b.classList.toggle('on', w.includes(b.dataset.v)));
+    }));
     const showPicked = () => {
       sh.querySelector('#pickedBox').innerHTML = picked ? `<div class="picked">📍 ${esc(picked.address || '위치 저장됨')} <button type="button" class="lnk" data-x="unpick">위치 빼기</button></div>` : '';
       sh.querySelector('[data-x=unpick]')?.addEventListener('click', () => { picked = null; showPicked(); });
@@ -1087,7 +1147,9 @@ function itemForm(t, item) {
       const data = {
         title: v('title'), date: v('date'), time: v('time'), memo: v('memo'), link, cat: pillVal(sh, 'cat')[0] || '기타',
         lat: picked?.lat ?? null, lng: picked?.lng ?? null, address: picked?.address || '', placeId: picked?.placeId || null,
+        who: (() => { const w = pillVal(sh, 'who'); return people.length > 1 && w.length && w.length < people.length ? w : null; })(),
       };
+      if (people.length > 1 && !pillVal(sh, 'who').length) return toast('누구랑 가는지 한 명 이상 골라 주세요');
       const spend = Number(sh.querySelector('[name=spend]').value);
       const itemId = isNew ? uid() : item.id;
       closeSheet(); S.day = data.date;
@@ -1097,7 +1159,7 @@ function itemForm(t, item) {
         if (spend > 0) {
           const exp = {
             title: data.title, amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: SPEND_CAT[data.cat] || '기타',
-            payer: pillVal(sh, 'spayer')[0] || linked?.payer || people[0], split: linked?.split || [...people], date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
+            payer: pillVal(sh, 'spayer')[0] || linked?.payer || people[0], split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(), date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
           };
           if (expenseId && linked) await updateDoc(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
           else { expenseId = uid(); await setDoc(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }

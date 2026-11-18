@@ -291,3 +291,25 @@ textarea.inp{resize:vertical;min-height:64px}
 .rc-route{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;font-size:13px}
 .rc-route span{border-left:3px solid var(--c,#888);padding:1px 6px;background:#fff;border-radius:4px}
 .rc-route em{font-style:normal;color:var(--ink2)}
+/* 탑승자 */
+.bp-pax{margin:-2px 0 12px}
+.bp-pax > span{display:block;font-size:11px;color:var(--ink2);margin-bottom:6px}
+.bp-pax > div{display:flex;gap:12px;flex-wrap:wrap}
+.pax{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:44px}
+.pax .av{border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.pax b{font-size:12px;font-weight:600}
+/* 따로 다니는 시간 (갈래) */
+.fork{position:relative;margin:4px 0 10px -26px;padding-left:26px}
+.forkhead{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--ink2);margin:0 0 8px}
+.forkhead::before{content:"";width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px dashed var(--ink2);margin-left:-26px;margin-right:4px;flex:none}
+.lanes{display:grid;gap:8px}
+.lane{background:rgba(255,255,255,.5);border:1px dashed var(--line);border-radius:14px;padding:8px;min-width:0}
+.lane h4{display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 8px;color:var(--ink)}
+.lane h4 .av{border:0}
+.mini{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--c,#888);border-radius:10px;padding:8px;margin-bottom:6px;cursor:pointer;min-width:0}
+.mini b{display:block;font-size:13px;word-break:break-word}
+.mini span{font-size:11px;color:var(--ink2);font-family:'IBM Plex Mono',monospace}
+.mini .ispend{margin-top:4px;font-size:10px}
+.mini.fl{background:#EEF1F7;border-left-color:#1F2A44}
+.lane-empty{font-size:12px;color:#B5AE9E;text-align:center;padding:10px 0}
+.meet{display:flex;align-items:center;gap:8px;background:var(--green-soft);color:var(--green);font-weight:700;font-size:13px;border-radius:12px;padding:10px 12px;margin:2px 0 10px}
