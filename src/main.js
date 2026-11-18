@@ -245,14 +245,27 @@ function guideSheet() {
     </ul></div>
     <button class="btn dark block" data-x="ok">알겠어요</button>`, (sh) => { sh.querySelector('[data-x=ok]').onclick = closeSheet; });
 }
+/* 여행 카드 꾸미기: 색 또는 사진 */
+const COVER_COLORS = ['#2E5BFF', '#FFD66B', '#FF7A59', '#0A9E62', '#A23ED1', '#00A3BF', '#191F28', '#F7C6D9'];
+const isLight = (hex) => { const h = hex.replace('#', ''); const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); return (r * 299 + g * 587 + b * 114) / 1000 > 165; };
+function coverClass(t) {
+  const c = t.cover; if (!c) return '';
+  if (c.type === 'image') return 'cov-img';
+  return isLight(c.value) ? 'cov-light' : 'cov-dark';
+}
+function coverStyle(t) {
+  const c = t.cover; if (!c) return '';
+  if (c.type === 'image') return `background-image:linear-gradient(90deg,rgba(0,10,30,.62),rgba(0,10,30,.15)),url('${c.data}')`;
+  return `background:${c.value}`;
+}
 function viewHome() {
   showMap(false); $('banner').innerHTML = '';
   $('hdr').innerHTML = `<h1 class="brand"><span class="brand-mark">${I.logo}</span>슝</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
   const list = [...S.trips].sort((a, b) => (b.start || '').localeCompare(a.start || ''));
   const up = list.filter((t) => dday(t) !== '완료'), past = list.filter((t) => dday(t) === '완료');
-  const card = (t) => `<button class="ticket" data-act="open" data-id="${esc(t.id)}">
+  const card = (t) => `<button class="ticket ${coverClass(t)}" data-act="open" data-id="${esc(t.id)}" style="${coverStyle(t)}">
       <div style="min-width:0"><div class="city">${esc(t.city || 'TRIP')}</div><div class="name">${esc(t.name)}</div>
-      <div class="small muted">${t.start ? esc(md(t.start)) + (t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : '') : '날짜 미정'} · ${(t.members || []).length}명 참여</div></div>
+      <div class="small muted">${t.start ? esc(md(t.start)) + (t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : '') : '날짜 미정'} · ${peopleOf(t).length}명</div></div>
       <div class="dd"><b>${esc(dday(t) || '—')}</b><span class="small muted">${esc(t.currency || 'KRW')}</span></div></button>`;
   const showInstall = !isStandalone() && !lsGet('tn_install_hide');
   $('view').innerHTML = `<div class="wrap">${showInstall ? `<div class="installcard"><span class="ic-emoji">📲</span>
@@ -617,6 +630,14 @@ function viewAsBtns(t, cur) {
   return `<div class="vabtns">${cur ? '<button class="vab" data-act="viewAs" data-v="">👥 전체</button>' : ''}${peopleOf(t).map((p) => `<button class="vab ${p === cur ? 'on' : ''}" data-act="viewAs" data-v="${esc(p)}">${nameAvatar(t, p, 18)}${esc(p)} 일정</button>`).join('')}</div>`;
 }
 
+/** 날씨 이모지 → 분위기 (배경 꾸미기용) */
+function wxKind(e = '') {
+  if (/⛈|🌧|☔|🌦/.test(e)) return 'rain';
+  if (/🌨|❄/.test(e)) return 'snow';
+  if (/☁|🌫|💨|🌥/.test(e)) return 'cloud';
+  if (/⛅/.test(e)) return 'partly';
+  return 'sun';
+}
 function viewPlan(t, days) {
   const people = peopleOf(t);
   if (S.viewAs && !people.includes(S.viewAs)) S.viewAs = null;
@@ -643,9 +664,9 @@ function viewPlan(t, days) {
   const wx = W[S.day];
   return `<div class="days">${days.map((d, idx) => {
     const c = dayItems(d).length; const w = W[d];
-    return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span>${w ? `<i class="dwx">${w.emoji} ${Math.round(w.max)}°</i>` : ''}</button>`;
+    return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span>${w ? `<i class="dwx wx-${wxKind(w.emoji)}">${w.emoji} ${Math.round(w.max)}°</i>` : ''}</button>`;
   }).join('')}</div>
-  ${wx ? `<div class="wxbar ${wx.kind}"><span class="wxe">${wx.emoji}</span><div><b>${esc(wx.text || '')} ${Math.round(wx.max)}° / ${Math.round(wx.min)}°</b>
+  ${wx ? `<div class="wxbar ${wx.kind} wx-${wxKind(wx.emoji)}"><span class="wxe">${wx.emoji}</span><div><b>${esc(wx.text || '')} ${Math.round(wx.max)}° / ${Math.round(wx.min)}°</b>
       <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
   ${va ? `<div class="vabar"><b>${nameAvatar(t, va, 22)}${esc(va)} 일정으로 보는 중</b>${viewAsBtns(t, va)}</div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
@@ -1461,6 +1482,14 @@ function tripForm(t) {
   openSheet(`<h2>${isNew ? '새 여행' : '여행 설정'}</h2>
     <label class="f"><span>여행 이름</span><input class="inp" name="name" value="${esc(t.name)}" placeholder="예: 오사카 먹방 여행"></label>
     <label class="f"><span>도시</span><input class="inp" name="city" value="${esc(t.city)}" placeholder="예: 오사카"><div class="hint">지도 위치랑 장소 검색할 때 써요.</div></label>
+    <div class="f"><span class="flbl">여행 카드 꾸미기</span>
+      <div class="covpick" id="covPick">
+        <button type="button" class="cov none" data-cov="" aria-label="기본">기본</button>
+        ${COVER_COLORS.map((c) => `<button type="button" class="cov" data-cov="${c}" style="background:${c}" aria-label="색 ${c}"></button>`).join('')}
+        <label class="cov photo" aria-label="사진 넣기">📷<input type="file" accept="image/*" hidden id="covFile"></label>
+      </div>
+      <div class="covprev ticket" id="covPrev"><div style="min-width:0"><div class="city">${esc(t.city || 'TRIP')}</div><div class="name">${esc(t.name || '여행 이름')}</div><div class="small muted">미리보기</div></div><div class="dd"><b>D-?</b></div></div>
+    </div>
     <div class="two"><label class="f"><span>출발</span><input class="inp" type="date" name="start" value="${esc(t.start)}"></label>
       <label class="f"><span>도착</span><input class="inp" type="date" name="end" value="${esc(t.end)}"></label></div>
     <div class="two"><label class="f"><span>현지 통화</span><select class="inp" name="currency">${CURRENCIES.map((c) => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
@@ -1477,6 +1506,20 @@ function tripForm(t) {
     <div class="rowbtns">${isOwner ? '<button class="btn danger" data-x="del">삭제</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh); wirePills(sh);
     const guests = [...(t.guests || [])];
+    let cover = t.cover || null;
+    const drawCov = () => {
+      const pv = sh.querySelector('#covPrev');
+      pv.className = `covprev ticket ${coverClass({ cover })}`; pv.setAttribute('style', coverStyle({ cover }));
+      sh.querySelectorAll('.cov[data-cov]').forEach((b) => b.classList.toggle('on', (cover?.type === 'color' ? cover.value : '') === b.dataset.cov && cover?.type !== 'image'));
+      sh.querySelector('.cov.photo').classList.toggle('on', cover?.type === 'image');
+    };
+    drawCov();
+    sh.querySelector('#covPick').addEventListener('click', (e) => { const b = e.target.closest('[data-cov]'); if (!b) return; cover = b.dataset.cov ? { type: 'color', value: b.dataset.cov } : null; drawCov(); });
+    sh.querySelector('#covFile').addEventListener('change', async (e) => {
+      const f = e.target.files?.[0]; if (!f) return;
+      try { cover = { type: 'image', data: await compressImage(f, 900, 0.72) }; drawCov(); } catch { toast('사진을 못 읽었어요'); }
+      e.target.value = '';
+    });
     const memberNm = (t.members || []).map((u) => t.memberNames?.[u]);
     const drawG = () => { sh.querySelector('#gList').innerHTML = guests.map((g, k) => `<span class="jm">${nameAvatar(t, g, 24)}${esc(g)} <button type="button" class="gdel" data-g="${k}" aria-label="빼기">✕</button></span>`).join('') || '<span class="small muted">아직 없어요</span>'; };
     drawG();
@@ -1502,6 +1545,7 @@ function tripForm(t) {
         name: v('name'), city: v('city'), start, end: end || start, currency: v('currency'),
         rate: (Number(v('rate')) || 1) / rateUnit(v('currency')),
         guests,
+        cover,
       };
       if (!isNew && data.city !== t.city) data.geo = null; // 도시 바뀌면 날씨 위치 다시 찾기
       closeSheet();

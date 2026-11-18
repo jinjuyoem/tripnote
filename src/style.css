@@ -800,3 +800,54 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 .sheet h2,.rc-hero h1{font-weight:700}
 .bp-type{font-weight:700}
 .daysum b,.itime,.sum .big,.bp-route b,.exp .amt,.ticket .dd b{font-weight:700}
+
+/* ---- Day 칩 크게 ---- */
+.days{gap:8px}
+.day{min-width:78px;padding:12px 14px 16px;border-radius:16px}
+.day b{font-size:15px;font-weight:700}
+.day span{font-size:12px}
+.day::after{width:7px;height:7px;margin-left:-3.5px;bottom:6px}
+.dwx{display:inline-block;margin-top:5px;font-size:11px;padding:2px 7px;border-radius:99px;background:var(--fill)}
+.day.on .dwx{background:rgba(255,255,255,.14)}
+/* 날씨에 따라 칩 배경 */
+.dwx.wx-sun{background:#FFF3C4;color:#7A5B00}
+.dwx.wx-partly{background:#EAF2FF;color:#2B4A8C}
+.dwx.wx-cloud{background:#ECEFF3;color:#4E5968}
+.dwx.wx-rain{background:#DDEBFA;color:#1F4E86}
+.dwx.wx-snow{background:#EEF6FF;color:#3A5A80}
+.day.on .dwx[class*=wx-]{background:rgba(255,255,255,.16);color:#fff}
+
+/* ---- 날씨 카드: 해·구름·비·눈 분위기 ---- */
+.wxbar{position:relative;overflow:hidden;border:0;padding:16px 18px;min-height:64px}
+.wxbar>*{position:relative;z-index:1}
+.wxbar::after{content:"";position:absolute;inset:0;z-index:0;pointer-events:none}
+.wxbar .wxe{font-size:26px}
+.wxbar.wx-sun{background:#FFF6D6}
+.wxbar.wx-sun::after{background:radial-gradient(circle at 92% 20%,rgba(255,196,0,.45) 0,rgba(255,196,0,.18) 22%,transparent 46%)}
+.wxbar.wx-partly{background:#EEF4FF}
+.wxbar.wx-partly::after{background:radial-gradient(circle at 90% 18%,rgba(255,206,60,.35) 0,transparent 30%),radial-gradient(ellipse at 78% 70%,rgba(255,255,255,.9) 0,transparent 38%)}
+.wxbar.wx-cloud{background:#EEF1F5}
+.wxbar.wx-cloud::after{background:radial-gradient(ellipse at 85% 30%,#fff 0,transparent 35%),radial-gradient(ellipse at 70% 80%,rgba(255,255,255,.8) 0,transparent 32%)}
+.wxbar.wx-rain{background:#E3EEFA}
+.wxbar.wx-rain::after{background:repeating-linear-gradient(105deg,transparent 0 14px,rgba(46,91,255,.10) 14px 15.5px);mask-image:linear-gradient(90deg,transparent 35%,#000);-webkit-mask-image:linear-gradient(90deg,transparent 35%,#000)}
+.wxbar.wx-snow{background:#F2F7FF}
+.wxbar.wx-snow::after{background:radial-gradient(circle,rgba(150,180,220,.5) 1.4px,transparent 1.8px) 0 0/18px 18px,radial-gradient(circle,rgba(150,180,220,.35) 1px,transparent 1.4px) 9px 9px/18px 18px;mask-image:linear-gradient(90deg,transparent 40%,#000);-webkit-mask-image:linear-gradient(90deg,transparent 40%,#000)}
+.wxbar.lastyear::before{content:"작년";position:absolute;right:12px;top:10px;z-index:1;font-size:10px;color:var(--ink2);background:rgba(255,255,255,.7);padding:1px 6px;border-radius:99px}
+
+/* ---- 여행 카드 꾸미기 ---- */
+.ticket.cov-img{background-size:cover;background-position:center;color:#fff}
+.ticket.cov-dark{color:#fff}
+.ticket.cov-img .city,.ticket.cov-dark .city,.ticket.cov-img .small,.ticket.cov-dark .small,.ticket.cov-img .muted,.ticket.cov-dark .muted{color:rgba(255,255,255,.78)}
+.ticket.cov-img .dd b,.ticket.cov-dark .dd b{color:#fff}
+.ticket.cov-light .dd b{color:var(--ink)}
+.ticket.cov-light .city,.ticket.cov-light .muted{color:rgba(25,31,40,.62)}
+.covpick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.cov{width:36px;height:36px;border-radius:12px;border:0;cursor:pointer;display:grid;place-items:center;font-size:15px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.cov.none{background:#fff;font-size:11px;font-weight:600;color:var(--ink2);width:auto;padding:0 10px}
+.cov.photo{background:var(--fill)}
+.cov.on{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--accent)}
+.covprev{pointer-events:none;margin:0;background:#fff;box-shadow:inset 0 0 0 1px var(--line)}
+.covprev.cov-img,.covprev.cov-dark,.covprev.cov-light{box-shadow:none}
+.day span{display:block}
+.dwx{display:block;width:fit-content;margin:6px auto 0}
+.wxbar.lastyear::before{display:none}
