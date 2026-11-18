@@ -94,13 +94,13 @@ watchAuth(async (u) => {
   S.trips = []; S.tripsLoaded = false; S.tripId = null;
   if (u && localStorage.getItem(DELETE_FLAG)) { localStorage.removeItem(DELETE_FLAG); render(); return doDeleteAccount(); }
   if (u) {
-    S.unsubMe = onSnapshot(doc(db, 'users', u.uid), (s) => { S.profiles.set(u.uid, s.exists() ? s.data() : {}); render(); }, () => {});
+    S.unsubMe = onSnapshot(doc(db, 'users', u.uid), (s) => { S.profiles.set(u.uid, s.exists() ? s.data() : {}); renderSoon(); }, () => {});
     S.unsubTrips = onSnapshot(
       query(collection(db, 'trips'), where('members', 'array-contains', u.uid)),
       (snap) => {
         S.trips = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         S.tripsLoaded = true;
-        if (S.tripId && !trip()) openTrip(null); else render();
+        if (S.tripId && !trip()) openTrip(null); else renderSoon();
       },
       (err) => { console.error(err); S.tripsLoaded = true; toast('여행 목록을 불러오지 못했어요'); render(); },
     );
@@ -138,7 +138,7 @@ function openTrip(id) {
     const sub = (name) => onSnapshot(collection(db, 'trips', id, name), (s) => {
       S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() }));
       if (name === 'items') { const tt = trip(); if (tt) normalizePositions(tt); }
-      render();
+      renderSoon();
     }, (e) => console.error(name, e));
     S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'), sub('places'));
     const t = trip(); if (t) loadProfiles(t.members || []);
@@ -171,6 +171,15 @@ function hideSplash() {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 700); }, Math.max(0, 2800 - (performance.now() - splashStart)));
 }
 setTimeout(hideSplash, 5000); // 혹시 로딩이 오래 걸려도 5초면 닫기
+let renderQueued = false;
+/** 데이터가 연달아 들어올 때 한 프레임에 한 번만 다시 그리기 (끄는 중이면 끝난 뒤로) */
+function renderSoon() {
+  if (renderQueued) return; renderQueued = true;
+  requestAnimationFrame(function go() {
+    if (dragOn || document.getElementById('segpop')) { requestAnimationFrame(go); return; }
+    renderQueued = false; render();
+  });
+}
 function render() {
   const t = trip();
   if (S.authReady) hideSplash();
@@ -386,7 +395,7 @@ async function placeRows(t, tokens, movedTok) {
 
 /* 순서 바꾸기: 일정(또는 항공편)을 꾹 누르면 그 자리에서 바로 끌어서 이동 (화면 다시 그리지 않음) */
 let dragOn = false; let suppressClickUntil = 0;
-document.addEventListener('touchmove', (e) => { if (dragOn && e.cancelable) e.preventDefault(); }, { passive: false });
+const blockScroll = (e) => { if (e.cancelable) e.preventDefault(); };
 document.addEventListener('contextmenu', (e) => { if (e.target.closest('.timeline [data-lp]') || dragOn) e.preventDefault(); });
 document.addEventListener('click', (e) => { if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); } }, true);
 /** 화면 순서대로 줄 토큰 목록 (갈래 안은 칸 순서, 중복 제거) */
@@ -406,7 +415,7 @@ function startDrag(card, clientY, isTouch) {
   const t = trip(); const tl = card.closest('.timeline'); if (!t || !tl) return;
   const box = card.parentElement; // 맨 위 줄이면 .timeline, 갈래 칸이면 .lane
   const tok = card.dataset.lp;
-  dragOn = true;
+  dragOn = true; document.addEventListener('touchmove', blockScroll, { passive: false });
   const rect0 = card.getBoundingClientRect();
   const offY = clientY - rect0.top;
   let lastY = clientY; let raf = 0; let ended = false;
@@ -440,7 +449,7 @@ function startDrag(card, clientY, isTouch) {
   };
   const end = () => {
     if (ended) return; ended = true;
-    cancelAnimationFrame(raf); dragOn = false; suppressClickUntil = Date.now() + 400;
+    cancelAnimationFrame(raf); dragOn = false; suppressClickUntil = Date.now() + 400; document.removeEventListener('touchmove', blockScroll);
     off();
     const toks = timelineTokens(tl, card, ph);
     ph.replaceWith(card); card.classList.remove('dragging');
@@ -1112,6 +1121,7 @@ function itemRow(t, i, no, list) {
       </div></div></div></div>`;
 }
 
+let lastMapSig = '';
 async function drawPlanMap(t, days) {
   if (!mapsEnabled) return showMap(false);
   showMap(true);
@@ -1129,8 +1139,12 @@ async function drawPlanMap(t, days) {
       points: dayItems(S.day).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: i.title })),
     }];
   }
-  const n = ctl.draw(groups);
-  if (!n) ctl.centerOn(t.city);
+  const sig = JSON.stringify([t.id, groups]);
+  if (sig !== lastMapSig) {
+    lastMapSig = sig;
+    const n = ctl.draw(groups);
+    if (!n) ctl.centerOn(t.city);
+  }
   $('mapToggle').hidden = false; $('mapToggle').textContent = S.mapAll ? '이 날만 보기' : '전체 일정 보기';
   const r = routeUrl(t, dayItems(S.day));
   $('routeLink').hidden = !r || S.mapAll; if (r) $('routeLink').href = r;
@@ -1177,7 +1191,7 @@ async function drawWishMap(t) {
     color: (ICATS[c] || ICATS.기타)[1], path: false,
     points: ps.filter((p) => (p.cat || '기타') === c).map((p) => ({ lat: p.lat, lng: p.lng, label: c[0], title: p.name })),
   }));
-  if (!ctl.draw(groups)) ctl.centerOn(t.city);
+  lastMapSig = ''; if (!ctl.draw(groups)) ctl.centerOn(t.city);
   $('mapToggle').hidden = true; $('routeLink').hidden = true;
 }
 function wishForm(t, p) {
