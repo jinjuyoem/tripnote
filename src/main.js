@@ -20,6 +20,7 @@ const S = {
   tripId: null, items: [], expenses: [], flights: [], places: [], wishCat: 'all', ordering: false,
   tab: 'plan', day: null, mapAll: false,
   unsubTrips: null, unsubSub: [], unsubMe: null,
+  access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
 };
@@ -87,27 +88,66 @@ async function ensureMap() {
 }
 $('mapToggle').onclick = () => { S.mapAll = !S.mapAll; render(); };
 
+/* ---------------- 비공개 베타 (allowlist) ---------------- */
+// 저장소가 공개라 관리자 이메일은 SHA-256 해시로만 둠 (firestore.rules의 isAdmin()과 같은 값)
+const ADMIN_HASHES = ['8c4c2ef482a22848694d608da19923a106ffc3e525e676ccb67de45bd58b229a'];
+const emailOf = (u) => (u?.email || '').trim().toLowerCase();
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+const BETA_NOTE = `<div class="beta-note"><b>🔒 비공개 베타 테스트 중이에요</b>
+  <p>지금은 개발자 주변 지인에게만 테스트하고 있어요. 사용하려면 승인(allowlist)이 필요해요.</p>
+  <p class="small">링크를 다른 분께 공유하지 말아 주세요 🙏</p></div>`;
+
+function stopData() {
+  S.unsubTrips?.(); S.unsubSub.forEach((f) => f()); S.unsubSub = []; S.unsubMe?.();
+  S.unsubTrips = null; S.unsubMe = null;
+  S.trips = []; S.tripsLoaded = false; S.tripId = null;
+}
+
 /* ---------------- auth ---------------- */
 watchAuth(async (u) => {
   S.user = u; S.authReady = true;
-  S.unsubTrips?.(); S.unsubSub.forEach((f) => f()); S.unsubSub = []; S.unsubMe?.();
-  S.trips = []; S.tripsLoaded = false; S.tripId = null;
+  stopData(); S.unsubAccess?.(); S.unsubAccess = null;
+  S.access = null; S.isAdmin = false; S.requested = false;
   if (u && localStorage.getItem(DELETE_FLAG)) { localStorage.removeItem(DELETE_FLAG); render(); return doDeleteAccount(); }
   if (u) {
-    S.unsubMe = onSnapshot(doc(db, 'users', u.uid), (s) => { S.profiles.set(u.uid, s.exists() ? s.data() : {}); renderSoon(); }, () => {});
-    S.unsubTrips = onSnapshot(
-      query(collection(db, 'trips'), where('members', 'array-contains', u.uid)),
-      (snap) => {
-        S.trips = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        S.tripsLoaded = true;
-        if (S.tripId && !trip()) openTrip(null); else renderSoon();
-      },
-      (err) => { console.error(err); S.tripsLoaded = true; toast('여행 목록을 불러오지 못했어요'); render(); },
-    );
-    if (pendingJoin) joinTrip(pendingJoin);
+    S.isAdmin = ADMIN_HASHES.includes(await sha256hex(emailOf(u)));
+    if (S.user !== u) return; // 확인하는 사이 계정이 바뀜
+    if (S.isAdmin) { S.access = 'ok'; startData(u); }
+    else {
+      S.access = 'checking';
+      // 승인되면 화면이 바로 열리고, 승인이 취소되면 바로 닫히도록 실시간으로 봄
+      S.unsubAccess = onSnapshot(doc(db, 'allowlist', emailOf(u)), (snap) => {
+        if (!snap.exists() && snap.metadata.fromCache) return; // 캐시에 없을 뿐일 수 있음 → 서버 응답 기다림
+        const was = S.access;
+        S.access = snap.exists() ? 'ok' : 'no';
+        if (S.access === 'ok' && was !== 'ok') startData(u);
+        if (S.access === 'no' && was === 'ok') stopData();
+        if (S.access === 'no') getDoc(doc(db, 'accessRequests', emailOf(u))).then((r) => { S.requested = r.exists(); renderSoon(); }).catch(() => {});
+        renderSoon();
+      }, (e) => { console.error(e); S.access = 'no'; renderSoon(); });
+    }
   }
   render();
 });
+
+/** 승인된 뒤에만 여행 데이터 구독 시작 */
+function startData(u) {
+  S.unsubMe = onSnapshot(doc(db, 'users', u.uid), (s) => { S.profiles.set(u.uid, s.exists() ? s.data() : {}); renderSoon(); }, () => {});
+  S.unsubTrips = onSnapshot(
+    query(collection(db, 'trips'), where('members', 'array-contains', u.uid)),
+    (snap) => {
+      S.trips = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      S.tripsLoaded = true;
+      if (S.tripId && !trip()) openTrip(null); else renderSoon();
+    },
+    (err) => { console.error(err); S.tripsLoaded = true; toast('여행 목록을 불러오지 못했어요'); render(); },
+  );
+  if (pendingJoin) joinTrip(pendingJoin);
+  renderSoon();
+}
 
 async function joinTrip(code) {
   pendingJoin = null;
@@ -186,6 +226,7 @@ function render() {
   if (S.authReady) hideSplash();
   if (!S.authReady) { $('hdr').innerHTML = ''; $('view').innerHTML = '<div class="empty">불러오는 중…</div>'; return showMap(false); }
   if (!S.user) return viewLogin();
+  if (S.access !== 'ok') return viewGate();
   if (S.tripId && t) viewTrip(t); else viewHome();
 }
 
@@ -195,10 +236,115 @@ function viewLogin() {
     <div class="login">
       <h1 class="login-word" aria-label="슝">${I.word}</h1>
       <p class="muted">일정·지도·항공권·가계부를 한 곳에서.<br>동행인과 같이 보고 같이 고쳐요.</p>
+      ${BETA_NOTE}
       ${pendingJoin ? '<p class="invite-note">초대받은 여행이 있어요. 로그인하면 바로 참여돼요.</p>' : ''}
       <button class="btn pri block" id="loginBtn">Google로 시작하기</button>
     </div>`;
   $('loginBtn').onclick = () => login().catch((e) => { console.error(e); toast('로그인하지 못했어요'); });
+}
+
+/** 승인 전 화면: 안내 + 사용 요청 */
+function viewGate() {
+  showMap(false); $('fabhost').innerHTML = ''; $('banner').innerHTML = '';
+  $('hdr').innerHTML = '';
+  if (S.access === 'checking') { $('view').innerHTML = '<div class="empty">확인하는 중…</div>'; return; }
+  const email = emailOf(S.user);
+  $('view').innerHTML = `
+    <div class="login">
+      <h1 class="login-word" aria-label="슝">${I.word}</h1>
+      ${BETA_NOTE}
+      <p class="small muted gate-mail"><b>${esc(email)}</b> 계정은 아직 승인 전이에요.</p>
+      ${S.requested
+        ? '<div class="gate-done">✓ 사용 요청을 보냈어요<br><span class="small muted">승인되면 이 화면이 자동으로 열려요.</span></div>'
+        : '<button class="btn pri block" id="reqBtn">사용 요청 보내기</button>'}
+      <button class="btn ghost block" id="outBtn" style="margin-top:10px">다른 계정으로 로그인</button>
+    </div>`;
+  const rb = $('reqBtn');
+  if (rb) rb.onclick = async () => {
+    rb.disabled = true;
+    try {
+      await setDoc(doc(db, 'accessRequests', email), {
+        email, uid: S.user.uid, name: S.user.displayName || '', photo: S.user.photoURL || null, at: Date.now(),
+      });
+      S.requested = true; render();
+    } catch (e) { console.error(e); rb.disabled = false; toast('요청을 보내지 못했어요'); }
+  };
+  $('outBtn').onclick = () => logout();
+}
+
+/* 로고 10번 연속 탭 → 관리자 화면 (관리자 계정만) */
+let logoTaps = 0; let logoTimer = null;
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.brand, .login-word')) return;
+  clearTimeout(logoTimer); logoTimer = setTimeout(() => { logoTaps = 0; }, 1500);
+  if (++logoTaps < 10) return;
+  logoTaps = 0;
+  if (S.isAdmin) adminSheet();
+});
+
+/** 테스터 관리: 요청 승인 · 직접 추가 · 이름 메모 · 삭제 */
+async function adminSheet() {
+  let reqs = []; let allow = [];
+  const load = async () => {
+    const [r, a] = await Promise.all([getDocs(collection(db, 'accessRequests')), getDocs(collection(db, 'allowlist'))]);
+    reqs = r.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => (y.at || 0) - (x.at || 0));
+    allow = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => (y.addedAt || 0) - (x.addedAt || 0));
+  };
+  try { await load(); } catch (e) { console.error(e); toast('관리자 권한을 확인하지 못했어요'); return; }
+  const approve = async (email, name) => {
+    const b = writeBatch(db);
+    b.set(doc(db, 'allowlist', email), { name: name || '', addedAt: Date.now(), addedBy: emailOf(S.user) });
+    b.delete(doc(db, 'accessRequests', email));
+    await b.commit();
+  };
+  const draw = () => openSheet(`<h2>🔑 테스터 관리</h2>
+    <div class="adm-add">
+      <input class="inp" name="nemail" type="email" inputmode="email" autocapitalize="off" placeholder="구글 이메일">
+      <input class="inp" name="nname" placeholder="누군지 (예: 대학 동기 민지)">
+      <button class="btn pri block" data-x="add">추가</button>
+    </div>
+    <h3 class="adm-h">요청 대기 <span>${reqs.length}</span></h3>
+    ${reqs.length ? reqs.map((r) => `<div class="adm-row" data-email="${esc(r.id)}">
+        <div class="adm-who"><b>${esc(r.name || '(이름 없음)')}</b><span>${esc(r.id)}</span></div>
+        <input class="inp adm-name" placeholder="누군지 메모" value="${esc(r.name || '')}">
+        <div class="adm-btns"><button class="btn ghost small" data-x="deny">거절</button><button class="btn pri small" data-x="ok">승인</button></div>
+      </div>`).join('') : '<p class="small muted adm-none">대기 중인 요청이 없어요</p>'}
+    <h3 class="adm-h">승인된 사람 <span>${allow.length + 1}</span></h3>
+    <div class="adm-row"><div class="adm-who"><b>나 (관리자)</b><span>${esc(emailOf(S.user))}</span></div></div>
+    ${allow.map((a) => `<div class="adm-row" data-email="${esc(a.id)}">
+        <div class="adm-who"><span>${esc(a.id)}</span></div>
+        <div class="adm-line"><input class="inp adm-name" placeholder="누군지 메모" value="${esc(a.name || '')}"><button class="btn danger small" data-x="del">삭제</button></div>
+      </div>`).join('')}`, (sh) => {
+    sh.querySelector('[data-x=add]').onclick = async () => {
+      const email = sh.querySelector('[name=nemail]').value.trim().toLowerCase();
+      const name = sh.querySelector('[name=nname]').value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('이메일을 확인해 주세요');
+      try { await approve(email, name); await load(); draw(); toast('추가했어요'); }
+      catch (e) { console.error(e); toast('추가하지 못했어요'); }
+    };
+    sh.querySelectorAll('.adm-row[data-email]').forEach((row) => {
+      const email = row.dataset.email;
+      const nameInp = row.querySelector('.adm-name');
+      const isAllowed = allow.some((a) => a.id === email);
+      if (isAllowed) nameInp.addEventListener('change', async () => {
+        try { await updateDoc(doc(db, 'allowlist', email), { name: nameInp.value.trim() }); toast('저장했어요'); }
+        catch (e) { console.error(e); toast('저장하지 못했어요'); }
+      });
+      row.querySelector('[data-x=ok]')?.addEventListener('click', async () => {
+        try { await approve(email, nameInp.value.trim()); await load(); draw(); toast('승인했어요'); }
+        catch (e) { console.error(e); toast('승인하지 못했어요'); }
+      });
+      row.querySelector('[data-x=deny]')?.addEventListener('click', () => askConfirm(`${email} 요청을 거절할까요?`, '거절', async () => {
+        try { await deleteDoc(doc(db, 'accessRequests', email)); } catch (e) { console.error(e); toast('처리하지 못했어요'); }
+        await load(); draw();
+      }));
+      row.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`${email} 승인을 취소할까요? 바로 앱을 못 쓰게 돼요.`, '삭제', async () => {
+        try { await deleteDoc(doc(db, 'allowlist', email)); } catch (e) { console.error(e); toast('삭제하지 못했어요'); }
+        await load(); draw();
+      }));
+    });
+  });
+  draw();
 }
 
 const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
