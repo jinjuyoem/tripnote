@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   const no = String(req.query.no || '').toUpperCase().replace(/\s/g, '');
   const date = String(req.query.date || '');
   if (!/^[A-Z0-9]{2,3}\d{1,5}[A-Z]?$/.test(no) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'input' });
-  const key = process.env.AERODATABOX_KEY;
+  const key = process.env.AERODATABOX_KEY || process.env.AERODATAX_KEY;
   if (!key) return res.status(503).json({ error: 'nokey' });
   try {
     const r = await fetch(`https://${HOST}/flights/number/${encodeURIComponent(no)}/${date}?withAircraftImage=false&withLocation=false&dateLocalRole=Departure`, {
