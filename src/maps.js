@@ -95,7 +95,7 @@ export async function createMap(el) {
 }
 
 /** 두 지점 사이 거리·시간 (Routes API). mode: WALK | TRANSIT | DRIVE | BICYCLE */
-export async function computeRoute(from, to, mode) {
+export async function computeRoute(from, to, mode, timeHHMM) {
   if (!mapsEnabled) return null;
   const body = {
     origin: { location: { latLng: { latitude: from.lat, longitude: from.lng } } },
@@ -103,6 +103,16 @@ export async function computeRoute(from, to, mode) {
     travelMode: mode, languageCode: 'ko',
   };
   if (mode === 'DRIVE') body.routingPreference = 'TRAFFIC_UNAWARE';
+  if (mode === 'TRANSIT') {
+    // 지금 시각(새벽 등) 기준이면 대중교통이 없다고 나와서, 내일 같은 시각(없으면 낮 12시) 기준으로 조회
+    // 현지 시각 → UTC는 경도로 대략 환산 (15도 = 1시간)
+    const [hh, mm] = (timeHHMM || '12:00').split(':').map(Number);
+    const offsetH = Math.round(from.lng / 15);
+    const d = new Date(); d.setUTCDate(d.getUTCDate() + 1);
+    d.setUTCHours(hh - offsetH, mm || 0, 0, 0);
+    if (d < new Date(Date.now() + 3600e3)) d.setUTCDate(d.getUTCDate() + 1);
+    body.departureTime = d.toISOString();
+  }
   const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },

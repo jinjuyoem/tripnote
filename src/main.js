@@ -252,7 +252,13 @@ function segText(from, to, mode) {
   const r = segResult(from, to, mode);
   if (!r || r === 'loading') return '<span class="muted">계산 중…</span>';
   if (r.err) return '<span class="muted">계산 실패</span>';
-  if (r.none) return '<span class="muted">이 수단으로는 경로가 없어요</span>';
+  if (r.none) {
+    // 구글 API가 일부 지역 정보를 안 줌 (예: 일본 대중교통, 한국 도보·차). 길찾기 링크는 구글맵 앱에서 정상 동작
+    const R = 6371000, toR = (x) => (x * Math.PI) / 180;
+    const a = Math.sin(toR(to.lat - from.lat) / 2) ** 2 + Math.cos(toR(from.lat)) * Math.cos(toR(to.lat)) * Math.sin(toR(to.lng - from.lng) / 2) ** 2;
+    const straight = 2 * R * Math.asin(Math.sqrt(a));
+    return `<span class="muted">이 지역은 ${MOVES[mode][1]} 시간 미제공 · 직선 ${fmtDist(straight)} → 길찾기에서 확인</span>`;
+  }
   return `<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}`;
 }
 async function fillSegments(t) {
@@ -262,7 +268,7 @@ async function fillSegments(t) {
     const from = items[k - 1], to = items[k], mode = segMode(t, to);
     if (segResult(from, to, mode)) continue;
     const key = segKey(from, to, mode); segCache.set(key, 'loading');
-    computeRoute(from, to, MOVES[mode][2]).then((r) => {
+    computeRoute(from, to, MOVES[mode][2], from.time || to.time).then((r) => {
       const res = r?.none ? { none: true } : r;
       segCache.set(key, { ...res, key });
       updateDoc(doc(db, 'trips', t.id, 'items', to.id), { move: { ...res, key } }).catch(() => {});
