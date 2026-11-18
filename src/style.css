@@ -111,6 +111,12 @@ header h1{font-size:20px;font-weight:700;letter-spacing:-.02em;flex:1;white-spac
 .wish .wt{font-weight:600;display:flex;align-items:center;gap:6px}
 .wish.added{opacity:.7}
 .addedtag{font-size:11px;font-weight:600;color:var(--green);background:var(--green-soft);padding:2px 7px;border-radius:6px}
+.bp-who{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 10px}
+.bp-who.small{margin:6px 0 0}
+.pchip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px 2px 3px;border-radius:99px;background:#EEF1F7;color:var(--ink)}
+.pchip .av{border:0}
+.wby{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink2);margin-top:4px}
+.wby .av{border:0}
 /* 프로필 */
 .av{display:inline-grid;place-items:center;border-radius:50%;color:#fff;font-weight:700;object-fit:cover;flex:none;border:2px solid var(--paper);background:#ccc}
 .avbtn{border-radius:50%;flex:none;line-height:0}
@@ -233,3 +239,4 @@ textarea.inp{resize:vertical;min-height:64px}
 .picked{font-size:13px;background:#EEF4FF;color:#23488F;border-radius:10px;padding:8px 10px;margin:-4px 0 12px;display:flex;align-items:center;gap:8px;justify-content:space-between}
 .invlink{background:#fff;border:1px dashed var(--line);border-radius:10px;padding:10px;font-size:12px;word-break:break-all;margin:8px 0}
 .toast{position:fixed;left:50%;bottom:calc(90px + var(--sb));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;z-index:30;animation:fade .2s;max-width:90vw;text-align:center}
+.pchip:not(:has(.av)){padding-left:8px}

@@ -42,6 +42,12 @@ function avatar(uid, size = 32, fallbackName = '') {
     ? `<img class="av" src="${esc(photo)}" alt="${esc(name)}" style="width:${size}px;height:${size}px" referrerpolicy="no-referrer">`
     : `<span class="av" style="width:${size}px;height:${size}px;background:${col};font-size:${Math.round(size * 0.42)}px">${esc([...name][0] || '?')}</span>`;
 }
+const nameOf = (t, uid) => S.profiles.get(uid)?.name || t?.memberNames?.[uid] || '알 수 없음';
+/** 이름 목록을 칩으로 (앱 참여자면 프로필 사진도) */
+function peopleChips(t, names) {
+  const byName = {}; Object.entries(t?.memberNames || {}).forEach(([u, n]) => { byName[n] = u; byName[S.profiles.get(u)?.name || n] = u; });
+  return names.map((n) => `<span class="pchip">${byName[n] ? avatar(byName[n], 18, n) : ''}${esc(n)}</span>`).join('');
+}
 async function loadProfiles(uids) {
   const need = uids.filter((u) => !S.profiles.has(u));
   if (!need.length) return;
@@ -228,11 +234,13 @@ async function moveItem(t, id, dir) {
   const list = dayItems(S.day); const k = list.findIndex((i) => i.id === id);
   const cur = list[k], nb = list[k + dir]; if (!cur || !nb) return;
   const ref = (i) => doc(db, 'trips', t.id, 'items', i.id);
+  let clearedTime = false;
   if (cur.time) {
     if (nb.time === cur.time) {
       return write(async () => { await updateDoc(ref(cur), { order: ordOf(nb) }); await updateDoc(ref(nb), { order: ordOf(cur) }); });
     }
-    return toast('시간이 있는 일정은 시간 순서가 우선이에요. 시간을 바꾸거나 지워 주세요.');
+    // 시간 순서를 거슬러 옮기면 → 시간을 지우고 원하는 자리로
+    clearedTime = cur.time; cur.time = '';
   }
   let after, order;
   if (!nb.time) {
@@ -254,7 +262,8 @@ async function moveItem(t, id, dir) {
     order = grp.length ? Math.max(...grp.map(ordOf)) + 1 : Date.now();
   }
   Object.assign(cur, { after, order }); render(); // 바로 반영
-  write(() => updateDoc(ref(cur), { after, order }));
+  if (clearedTime) toast(`'${cur.title}' 시간(${clearedTime})을 지우고 옮겼어요`);
+  write(() => updateDoc(ref(cur), { after, order, ...(clearedTime ? { time: '' } : {}) }));
 }
 function dayFlights(d) {
   const out = [];
@@ -391,7 +400,8 @@ function flightRow(f) {
   return `<div class="item flightrow ${dep ? '' : 'arr'}" style="--cat:#1F2A44" data-act="tab" data-v="flight">
     <div class="irow"><div class="itime">${esc(f.time || '--:--')}</div>
     <div style="flex:1;min-width:0"><div class="ititle">${title}</div>
-    <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div></div></div></div>`;
+    <div class="imemo">${esc(sub)}${dep && f.bookingRef ? ' · 예약 ' + esc(f.bookingRef) : ''}${dep && (f.qrIds || []).length ? ' · 📱 QR' : ''}</div>
+    ${(f.who || []).length ? `<div class="bp-who small">${peopleChips(trip(), f.who)}</div>` : ''}</div></div></div>`;
 }
 function itemRow(t, i, no, list) {
   const c = ICATS[i.cat] || ICATS.기타;
@@ -399,7 +409,7 @@ function itemRow(t, i, no, list) {
     const k = list.findIndex((x) => x.id === i.id);
     return `<div class="item ordering" style="--cat:${c[1]}"><div class="irow">
       <div class="itime">${esc(i.time || '—')}</div>
-      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div>${i.time ? '<div class="iaddr">시간 순 고정</div>' : '<div class="iaddr">자유롭게 이동</div>'}</div>
+      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div>${i.time ? '<div class="iaddr">다른 시간 일정을 넘어가면 시간이 지워져요</div>' : '<div class="iaddr">자유롭게 이동</div>'}</div>
       <div class="ordctl"><button data-act="mv" data-dir="-1" data-id="${esc(i.id)}" ${k === 0 ? 'disabled' : ''} aria-label="위로">▲</button><button data-act="mv" data-dir="1" data-id="${esc(i.id)}" ${k === list.length - 1 ? 'disabled' : ''} aria-label="아래로">▼</button></div>
     </div></div>`;
   }
@@ -458,6 +468,7 @@ function viewWish(t) {
       const dayNo = added ? days.indexOf(p.addedTo.date) + 1 : 0;
       return `<div class="wish ${added ? 'added' : ''}" style="--cat:${c[1]}" ${ll(p) ? `data-act="focusWish" data-id="${esc(p.id)}"` : ''}>
         <div class="wt"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(p.cat || '기타')}</span>${esc(p.name)}${added ? `<span class="addedtag">${dayNo > 0 ? 'Day ' + dayNo : '일정'}에 추가됨</span>` : ''}</div>
+        ${p.by ? `<div class="wby">${avatar(p.by, 18, t.memberNames?.[p.by])}<span>${esc(nameOf(t, p.by))} 찜</span></div>` : ''}
         ${p.address ? `<div class="iaddr">${esc(p.address)}</div>` : ''}
         ${p.memo ? `<div class="imemo">${esc(p.memo)}</div>` : ''}
         <div class="iactions">
@@ -559,6 +570,7 @@ function viewFlights() {
     const dur = f.depAt && f.arrAt ? Math.round((new Date(f.arrAt) - new Date(f.depAt)) / 6e4) : null;
     return `<div class="boarding">
       <div class="bp-top"><span class="bp-type">${esc(f.kind || '항공편')}</span><span class="small">${esc([f.airline, f.flightNo].filter(Boolean).join(' '))}</span></div>
+      ${(f.who || []).length ? `<div class="bp-who">${peopleChips(trip(), f.who)}</div>` : ''}
       <div class="bp-route">
         <div><b>${esc(f.from || '---')}</b><span>${esc(fdate(f.depAt))}</span></div>
         <div class="bp-plane">${I.plane}${dur && dur > 0 && dur < 3000 ? `<small>약 ${Math.floor(dur / 60)}시간 ${dur % 60}분<br>(현지시각 기준)</small>` : ''}</div>
@@ -834,9 +846,16 @@ function itemForm(t, item) {
 /* flight */
 function flightForm(t, f) {
   const isNew = !f;
-  f = f || { kind: S.flights.length ? '오는편' : '가는편', airline: '', flightNo: '', from: '', to: '', depAt: t.start ? t.start + 'T09:00' : '', arrAt: '', bookingRef: '', seat: '', terminal: '', baggage: '', memo: '' };
+  const plusH = (dt, h) => { if (!dt) return ''; const d = new Date(dt + ':00'); d.setHours(d.getHours() + h); return `${fmtD(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const isReturn = S.flights.length > 0;
+  const defDep = isReturn ? (t.end ? t.end + 'T15:00' : '') : (t.start ? t.start + 'T09:00' : '');
+  f = f || { kind: isReturn ? '오는편' : '가는편', airline: '', flightNo: '', from: '', to: '', depAt: defDep, arrAt: plusH(defDep, 2), bookingRef: '', seat: '', terminal: '', baggage: '', memo: '', who: [me()] };
+  // 탑승자 후보: 정산용 이름 + 앱 참여자 이름 + 이미 지정된 사람
+  const whoOpts = [...new Set([...(t.people || []), ...Object.values(t.memberNames || {}), ...(f.who || [])].filter(Boolean))];
+  const whoSel = f.who || (f.by && t.memberNames?.[f.by] ? [t.memberNames[f.by]] : []);
   openSheet(`<h2>${isNew ? '항공권 추가' : '항공권 수정'}</h2>
     <label class="f"><span>구분</span>${pills('kind', ['가는편', '오는편', '경유·기타'], f.kind)}</label>
+    <label class="f"><span>탑승자 (이 비행기 타는 사람)</span>${pills('who', whoOpts, whoSel, true)}</label>
     <div class="two"><label class="f"><span>항공사</span><input class="inp" name="airline" value="${esc(f.airline)}" placeholder="예: 제주항공"></label>
       <label class="f"><span>편명</span><input class="inp mono" name="flightNo" value="${esc(f.flightNo)}" placeholder="예: 7C1301" autocapitalize="characters"></label></div>
     <div class="two"><label class="f"><span>출발 공항</span><input class="inp mono" name="from" value="${esc(f.from)}" placeholder="ICN" autocapitalize="characters"></label>
@@ -855,7 +874,22 @@ function flightForm(t, f) {
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); wireTimeFields(sh, '비행기 시간'); const v = fval(sh);
     // 출발일 고르면 도착일 비어 있을 때 같은 날로
-    sh.querySelector('[name=depDate]').addEventListener('change', (e) => { const a = sh.querySelector('[name=arrDate]'); if (!a.value) a.value = e.target.value; });
+    // 출발을 바꾸면 도착을 '출발 + 같은 비행시간'으로 따라 맞춤 (기본 2시간). 도착을 직접 고치면 그 간격 유지
+    const getDT = (p) => { const d = sh.querySelector(`[name=${p}Date]`).value, h = sh.querySelector(`[name=${p}Time]`).value; return d && h ? `${d}T${h}` : ''; };
+    let gapH = (() => { const a = getDT('dep'), b = getDT('arr'); return a && b ? Math.max(0, (new Date(b) - new Date(a)) / 36e5) : 2; })();
+    const setArr = (dt) => {
+      if (!dt) return;
+      sh.querySelector('[name=arrDate]').value = dt.slice(0, 10);
+      const hid = sh.querySelector('[name=arrTime]'); hid.value = dt.slice(11, 16);
+      const btn = sh.querySelector('[data-timefield=arrTime]'); btn.textContent = hid.value; btn.classList.remove('empty');
+    };
+    const followDep = () => { const dep = getDT('dep'); if (dep) setArr(plusHf(dep, gapH)); };
+    const plusHf = (dt, h) => { const d = new Date(dt + ':00'); d.setMinutes(d.getMinutes() + Math.round(h * 60)); return `${fmtD(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    sh.querySelector('[name=depDate]').addEventListener('change', followDep);
+    sh.querySelector('[name=depTime]').addEventListener('change', followDep);
+    const onArr = () => { const a = getDT('dep'), b = getDT('arr'); if (a && b && new Date(b) >= new Date(a)) gapH = (new Date(b) - new Date(a)) / 36e5; };
+    sh.querySelector('[name=arrDate]').addEventListener('change', onArr);
+    sh.querySelector('[name=arrTime]').addEventListener('change', onArr);
     // 사진 목록: 기존(id) + 새로 넣은 것(data) — 저장 누를 때 반영
     let qrs = (f.qrIds || []).map((id) => ({ id, data: qrCache.get(id) && qrCache.get(id) !== 'loading' ? qrCache.get(id) : null }));
     const removed = [];
@@ -890,6 +924,7 @@ function flightForm(t, f) {
         kind: pillVal(sh, 'kind')[0] || '항공편', airline: v('airline'), flightNo: v('flightNo').toUpperCase(),
         from: v('from').toUpperCase(), to: v('to').toUpperCase(), depAt, arrAt,
         bookingRef: v('bookingRef').toUpperCase(), seat: v('seat'), terminal: v('terminal'), baggage: v('baggage'), memo: v('memo'),
+        who: pillVal(sh, 'who'),
       };
       const fid = isNew ? uid() : f.id;
       const btn = sh.querySelector('[data-x=save]'); btn.disabled = true; btn.textContent = '저장 중…';
