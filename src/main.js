@@ -359,78 +359,91 @@ async function placeRows(t, tokens, movedTok) {
   if (ups.length) write(async () => { for (const [c, id, data] of ups) await updateDoc(doc(db, 'trips', t.id, c, id), data); });
 }
 
-/* 순서 바꾸기: 일정(또는 항공편)을 꾹 누르면 바로 끌어서 이동. 순서 모드에선 ≡ 손잡이로도 */
+/* 순서 바꾸기: 일정(또는 항공편)을 꾹 누르면 그 자리에서 바로 끌어서 이동 (화면 다시 그리지 않음) */
 let dragOn = false; let suppressClickUntil = 0;
 document.addEventListener('touchmove', (e) => { if (dragOn && e.cancelable) e.preventDefault(); }, { passive: false });
 document.addEventListener('contextmenu', (e) => { if (e.target.closest('.timeline [data-lp]') || dragOn) e.preventDefault(); });
 document.addEventListener('click', (e) => { if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); } }, true);
-function startDrag(card, clientY, fromLongPress) {
-  const box = card.parentElement; const t = trip(); if (!box || !t) return;
-  const tok = card.dataset.drag;
+/** 화면 순서대로 줄 토큰 목록 (갈래 안은 칸 순서, 중복 제거) */
+function timelineTokens(tl, dragged, ph) {
+  const out = [];
+  const push = (tk) => { if (tk && !out.includes(tk)) out.push(tk); };
+  const walk = (el) => {
+    if (el === ph) return push(dragged.dataset.lp);
+    if (el === dragged) return;
+    if (el.dataset?.lp) return push(el.dataset.lp);
+    for (const c of el.children) walk(c);
+  };
+  walk(tl);
+  return out;
+}
+function startDrag(card, clientY, isTouch) {
+  const t = trip(); const tl = card.closest('.timeline'); if (!t || !tl) return;
+  const box = card.parentElement; // 맨 위 줄이면 .timeline, 갈래 칸이면 .lane
+  const tok = card.dataset.lp;
   dragOn = true;
   const rect0 = card.getBoundingClientRect();
-  const offY = fromLongPress ? rect0.height / 2 : clientY - rect0.top;
-  let lastY = clientY; let raf = 0;
-  card.classList.add('dragging');
+  const offY = clientY - rect0.top;
+  let lastY = clientY; let raf = 0; let ended = false;
   const ph = document.createElement('div'); ph.className = 'dragph'; ph.style.height = rect0.height + 'px';
   card.after(ph);
-  // 카드를 화면에 띄워서 손가락을 따라오게
-  Object.assign(card.style, { position: 'fixed', top: '0px', left: rect0.left + 'px', width: rect0.width + 'px', zIndex: 30, margin: 0 });
-  const placeCard = () => { card.style.transform = `translateY(${lastY - offY}px)`; };
+  card.classList.add('dragging');
+  Object.assign(card.style, { position: 'fixed', top: '0px', left: rect0.left + 'px', width: rect0.width + 'px', zIndex: 30, margin: 0, transform: `translateY(${rect0.top}px)` });
+  // 놓을 수 있는 자리: 같은 상자 안의 카드들 (맨 위 줄이면 갈래 묶음도 한 덩어리로)
+  const spots = () => [...box.children].filter((x) => x !== card && x !== ph && (x.dataset.lp || x.classList.contains('fork')));
   const findSpot = () => {
-    const others = [...box.querySelectorAll(':scope > [data-drag]')].filter((x) => x !== card);
-    let placed = false;
-    for (const o of others) {
+    const list = spots(); let placed = false;
+    for (const o of list) {
       const r = o.getBoundingClientRect();
-      if (lastY < r.top + r.height / 2) { if (ph.nextElementSibling !== o) o.before(ph); placed = true; break; }
+      if (lastY < r.top + r.height / 2) {
+        // 바로 앞 이동 구간 줄까지 같이 넘어가도록, 카드 앞에 붙은 구간 줄 앞에 둠
+        let at = o; while (at.previousElementSibling && at.previousElementSibling.classList.contains('seg') && at.previousElementSibling !== ph) at = at.previousElementSibling;
+        if (ph.nextElementSibling !== at) at.before(ph);
+        placed = true; break;
+      }
     }
-    if (!placed && others.length) { const lastEl = others[others.length - 1]; if (lastEl.nextElementSibling !== ph) lastEl.after(ph); }
+    if (!placed && list.length) { const last = list[list.length - 1]; if (last.nextElementSibling !== ph) last.after(ph); }
   };
-  placeCard(); findSpot();
-  const move = (e) => {
-    lastY = e.clientY; placeCard(); findSpot();
-    // 화면 끝에 가면 자동 스크롤
+  const moveTo = (y) => {
+    lastY = y; card.style.transform = `translateY(${lastY - offY}px)`; findSpot();
     cancelAnimationFrame(raf);
-    const edge = 70; const vh = window.innerHeight;
+    const edge = 80; const vh = window.innerHeight;
     if (lastY > vh - edge || lastY < edge) {
-      const step = () => { window.scrollBy(0, lastY > vh - edge ? 8 : -8); findSpot(); raf = requestAnimationFrame(step); };
+      const step = () => { window.scrollBy(0, lastY > vh - edge ? 10 : -10); findSpot(); raf = requestAnimationFrame(step); };
       raf = requestAnimationFrame(step);
     }
   };
-  const up = () => {
+  const end = () => {
+    if (ended) return; ended = true;
     cancelAnimationFrame(raf); dragOn = false; suppressClickUntil = Date.now() + 400;
-    document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
+    off();
+    const toks = timelineTokens(tl, card, ph);
     ph.replaceWith(card); card.classList.remove('dragging');
     Object.assign(card.style, { transform: '', position: '', top: '', left: '', width: '', zIndex: '', margin: '' });
-    const toks = [...box.querySelectorAll(':scope > [data-drag]')].map((x) => x.dataset.drag);
-    if (fromLongPress) S.ordering = false; // 꾹 눌러서 시작한 경우 놓으면 원래 화면으로
     placeRows(t, toks, tok);
   };
-  document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+  // 휴대폰: 터치 이벤트로 따라감 (스크롤로 넘어가며 끊기는 것 방지), 마우스: 포인터 이벤트
+  const tmove = (e) => { const p = e.touches[0]; if (p) moveTo(p.clientY); };
+  const pmove = (e) => { if (e.pointerType !== 'touch') moveTo(e.clientY); };
+  const pup = (e) => { if (e.pointerType !== 'touch') end(); };
+  const off = () => {
+    document.removeEventListener('touchmove', tmove); document.removeEventListener('touchend', end); document.removeEventListener('touchcancel', end);
+    document.removeEventListener('pointermove', pmove); document.removeEventListener('pointerup', pup);
+  };
+  if (isTouch) { document.addEventListener('touchmove', tmove, { passive: true }); document.addEventListener('touchend', end); document.addEventListener('touchcancel', end); }
+  else { document.addEventListener('pointermove', pmove); document.addEventListener('pointerup', pup); }
 }
-// 순서 모드의 ≡ 손잡이
+// 꾹 누르기 (0.4초, 손가락이 움직이면 취소 → 그냥 스크롤)
 document.addEventListener('pointerdown', (ev) => {
-  const h = ev.target.closest('.draghandle'); if (!h) return;
-  const card = h.closest('[data-drag]'); if (!card) return;
-  ev.preventDefault(); startDrag(card, ev.clientY, false);
-});
-// 꾹 누르기 (0.45초, 손가락이 움직이면 취소 → 스크롤)
-document.addEventListener('pointerdown', (ev) => {
-  if (S.ordering || ev.button > 0) return;
+  if (S.ordering || ev.button > 0 || dragOn) return;
   const el = ev.target.closest('.timeline [data-lp]'); if (!el) return;
-  if (ev.target.closest('.segsel, .rate, a, .tbtn, select, input')) return;
-  const tok = el.dataset.lp; const x0 = ev.clientX, y0 = ev.clientY; let y = y0;
+  if (ev.target.closest('.segsel, .rate, a, .tbtn, select, input, button')) return;
+  const isTouch = ev.pointerType === 'touch';
+  const x0 = ev.clientX, y0 = ev.clientY; let y = y0;
   el.classList.add('pressing');
   const cancel = () => { clearTimeout(timer); el.classList.remove('pressing'); document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', cancel); document.removeEventListener('pointercancel', cancel); };
-  const mv = (e) => { y = e.clientY; if (Math.hypot(e.clientX - x0, e.clientY - y0) > 8) cancel(); };
-  const timer = setTimeout(() => {
-    cancel();
-    navigator.vibrate?.(15);
-    S.ordering = true; render();
-    const card = document.querySelector(`.timeline > [data-drag="${CSS.escape(tok)}"]`);
-    if (!card) { S.ordering = false; render(); return; }
-    startDrag(card, y, true);
-  }, 450);
+  const mv = (e) => { y = e.clientY; if (Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancel(); };
+  const timer = setTimeout(() => { cancel(); navigator.vibrate?.(15); startDrag(el, y, isTouch); }, 400);
   document.addEventListener('pointermove', mv); document.addEventListener('pointerup', cancel); document.addEventListener('pointercancel', cancel);
 });
 function dayFlights(d) {
@@ -1240,6 +1253,17 @@ async function checkFlight(t, id, btn) {
     write(() => updateDoc(doc(db, 'trips', t.id, 'flights', id), { live }));
   } catch (e) { toast(flightErr(e)); render(); }
 }
+/** 항공사 온라인 체크인 페이지 (확인된 곳은 바로, 나머지는 검색 결과로) */
+const CHECKIN = {
+  OZ: 'https://flyasiana.com/C/KR/KO/contents/online-check-in',
+  '7C': 'https://wcc.jejuair.net/ko/ibe/checkin/viewCheckin.do',
+};
+function checkinUrl(f) {
+  const code = (f.flightNo || '').toUpperCase().replace(/\s/g, '').slice(0, 2);
+  if (CHECKIN[code]) return CHECKIN[code];
+  const name = f.airline || code;
+  return `https://www.google.com/search?q=${encodeURIComponent(`${name} 온라인 체크인`)}`;
+}
 function viewFlights() {
   const list = sortFlights();
   if (!list.length) return '<div class="empty"><b>등록된 항공권이 없어요</b>예약한 항공편을 넣어두면 일정에 자동으로 표시돼요.</div>';
@@ -1264,6 +1288,7 @@ function viewFlights() {
       ${(f.qrIds || []).length ? `<div class="qrrow">${f.qrIds.map((q, k) => `<button class="qrthumb" data-act="qrview" data-flight="${esc(f.id)}" data-idx="${k}">${qrCache.get(q) && qrCache.get(q) !== 'loading' ? `<img src="${qrCache.get(q)}" alt="QR ${k + 1}">` : '<span>QR</span>'}</button>`).join('')}
         <button class="btn dark qrbig" data-act="qrview" data-flight="${esc(f.id)}" data-idx="0">📱 체크인 QR 크게 보기</button></div>` : ''}
       <div class="iactions" style="margin-top:10px">
+        ${f.flightNo || f.airline ? `<a class="lnk ckbtn" href="${esc(checkinUrl(f))}" target="_blank" rel="noopener" data-act="checkin" data-id="${esc(f.id)}">🧳 온라인 체크인</a>` : ''}
         ${f.flightNo ? `<button class="lnk live-btn" data-act="checkFlight" data-id="${esc(f.id)}">✈️ 상태 체크하기</button>` : ''}
         <button class="lnk" data-act="editFlight" data-id="${esc(f.id)}">수정</button>
       </div></div>`;
@@ -1897,6 +1922,7 @@ async function doDeleteAccount() {
 /* ---------------- events ---------------- */
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el || el.closest('.sheet')) return;
+  if (ev.target.closest('a.ckbtn')) { const f = S.flights.find((x) => x.id === el.dataset.id); if (f?.bookingRef) copy(f.bookingRef, `예약번호 ${f.bookingRef} 복사해 뒀어요`); return; }
   if (ev.target.closest('a')) return; // 링크는 그대로 열기
   if (ev.target.closest('.rate')) return; // 별점 영역은 지도 이동 안 함
   const a = el.dataset.act, id = el.dataset.id, t = trip();

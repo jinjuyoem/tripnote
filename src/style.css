@@ -391,7 +391,7 @@ textarea.inp{resize:vertical;min-height:64px}
 .rc-write textarea{margin-bottom:8px}
 /* 꾹 눌러서 순서 바꾸기 */
 .timeline [data-lp]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-.timeline [data-lp].pressing{transform:scale(.97);transition:transform .45s ease-out;box-shadow:0 0 0 2px var(--line)}
+.timeline [data-lp].pressing{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .4s ease-out}
 .lphint{margin-right:auto;align-self:center;font-size:11px;color:var(--ink2)}
 .item.flightrow.ordering{background:#F2F4F6}
 /* 동행 직접 추가 */
@@ -646,3 +646,7 @@ input[type=date].inp{background:var(--fill);height:50px}
 .taxiroute{background:var(--fill);border:0}
 .taxiapp{border:0;background:var(--fill)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.item.dragging,.mini.dragging{box-shadow:0 16px 36px rgba(0,20,60,.22);opacity:.97;transition:none}
+.lane .dragph{border-radius:12px;margin-bottom:6px}
+.ckbtn{background:var(--ink)!important;color:#fff!important}
