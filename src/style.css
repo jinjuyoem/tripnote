@@ -344,3 +344,48 @@ textarea.inp{resize:vertical;min-height:64px}
 .stars .sfg{position:absolute;left:0;top:2px;width:var(--v,0%);overflow:hidden;white-space:nowrap;color:#F2B01E}
 .rtxt{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:var(--ink)}
 .ravg{font-size:11px;color:var(--ink2);margin-left:auto}
+/* 리캡: 어워드 */
+.aw{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.aw-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;text-align:center;display:flex;flex-direction:column;gap:2px;align-items:center}
+.aw-card.best{grid-column:1/-1;text-align:left;align-items:stretch;background:linear-gradient(135deg,#FFF6D8,#FFEFE6)}
+.aw-big{font-size:28px;line-height:1.1}
+.aw-t{font-size:11px;font-weight:700;color:var(--ink2);letter-spacing:.02em}
+.aw-card>b{font-size:16px}
+.aw-card>i{font-style:normal;font-size:11px;color:var(--ink2)}
+.aw-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px}
+.aw-row b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aw-row i{font-style:normal;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#C98A00;font-weight:700}
+/* 리캡: 후기 */
+.rc-empty{font-size:13px;color:var(--ink2);background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:14px;text-align:center}
+.rv-list{display:flex;flex-direction:column;gap:8px}
+.rv{position:relative;display:flex;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.rv-mood{font-size:30px;line-height:1}
+.rv-who{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}
+.rv-who .av{border:0}
+.rv p,.lt p{margin:0;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+/* 리캡: 서로에게 한마디 (쪽지) */
+.lt-list{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px 2px}
+.lt{position:relative;background:var(--bg);border-radius:4px 4px 14px 4px;padding:14px 12px 10px;transform:rotate(var(--rot));box-shadow:0 6px 14px rgba(40,30,10,.12);font-family:inherit}
+.lt::before{content:"";position:absolute;top:-7px;left:50%;width:44px;height:14px;margin-left:-22px;background:rgba(255,255,255,.65);transform:rotate(-3deg);border-radius:2px}
+.lt.forme{outline:2px solid #F46D8E;outline-offset:2px}
+.lt-to{font-size:12px;font-weight:700}
+.lt-to i{font-style:normal;font-size:10px;color:#D6336C;margin-left:2px}
+.lt-st{position:absolute;right:8px;top:6px;font-size:24px}
+.lt p{margin:8px 0 6px;font-size:13px}
+.lt-from{font-size:11px;color:rgba(0,0,0,.55);text-align:right}
+.nt-del{position:absolute;right:6px;bottom:6px;z-index:2;border:0;background:rgba(0,0,0,.06);border-radius:99px;font-size:10px;padding:2px 7px;color:var(--ink2);cursor:pointer}
+.rv .nt-del{top:8px;bottom:auto}
+.lt .nt-del{left:8px;right:auto;bottom:8px}
+.nt-del.sure{background:#E5484D;color:#fff}
+/* 리캡: 쓰기 */
+.rc-write{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px}
+.rw-tabs{display:flex;gap:6px;margin-bottom:10px;background:#F1EBDD;border-radius:12px;padding:3px}
+.rw-tabs button{flex:1;border:0;background:none;font:inherit;font-size:13px;font-weight:600;padding:8px;border-radius:10px;color:var(--ink2);cursor:pointer}
+.rw-tabs button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.rw-lbl{font-size:12px;font-weight:600;color:var(--ink2);margin:4px 2px 6px}
+.rw-pick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.rw-pick button{border:1px solid var(--line);background:#fff;border-radius:12px;font-size:22px;width:44px;height:44px;cursor:pointer;transition:transform .12s}
+.rw-pick button.on{border-color:var(--ink);background:#FFF6D8;transform:scale(1.08)}
+.rw-pick.names button{width:auto;height:auto;font:inherit;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:5px;padding:5px 10px 5px 5px;border-radius:99px}
+.rw-pick.names .av{border:0}
+.rc-write textarea{margin-bottom:8px}

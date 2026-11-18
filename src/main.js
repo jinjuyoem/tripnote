@@ -644,12 +644,101 @@ async function openRecap(t) {
       ${topSpend && topSpend.spent ? `<div>💸 가장 많이 쓴 날<b>${esc(dayLabel(topSpend, per.indexOf(topSpend)))} · ${won(topSpend.spent)}</b></div>` : ''}
       ${topWalk && topWalk.walkS ? `<div>🚶 가장 많이 걸은 날<b>${esc(dayLabel(topWalk, per.indexOf(topWalk)))} · ${fmtDur(topWalk.walkS)}</b></div>` : ''}
     </div>
+    ${awardsHtml(t)}
     <h3 class="rc-h">하루하루</h3>
     ${per.map((x, i) => `<div class="rc-day"><div class="rc-dh"><b>${esc(dayLabel(x, i))}</b>${W[x.d] ? `<span>${W[x.d].emoji} ${Math.round(W[x.d].max)}°</span>` : ''}${x.spent ? `<span class="mono">${won(x.spent)}</span>` : ''}</div>
       <div class="rc-route">${x.items.length ? x.items.map((it) => `<span style="--c:${(ICATS[it.cat] || ICATS.기타)[1]}">${esc(it.title)}</span>`).join('<em>→</em>') : '<span class="muted">기록 없음</span>'}</div></div>`).join('')}
     ${leftWish.length ? `<h3 class="rc-h">다음에 가볼 곳 (못 간 찜 ${leftWish.length})</h3><div class="rc-route">${leftWish.map((p) => `<span style="--c:${(ICATS[p.cat] || ICATS.기타)[1]}">${esc(p.name)}</span>`).join('')}</div>` : ''}
+    <div id="rcNotes"></div>
     <button class="btn pri block" data-rc="copy" data-text="${esc(text)}" style="margin:22px 0 8px">리캡 텍스트 복사하기</button>
   </div>`;
+  const box = v.querySelector('#rcNotes'); const copyBtn = v.querySelector('[data-rc=copy]');
+  const syncCopy = (notes) => {
+    const extra = notes.filter((n) => !n.to).map((n) => `✍️ ${noteName(t, n)} ${n.mood || ''} "${n.text}"`);
+    copyBtn.dataset.text = extra.length ? `${text}\n\n${extra.join('\n')}` : text;
+  };
+  syncCopy(await drawNotes(t, box));
+  box.addEventListener('click', (e) => onNotesClick(e, t, box, syncCopy));
+}
+
+/* ---------- 리캡: 우리끼리 어워드 · 후기 · 서로에게 한마디 ---------- */
+function awardsHtml(t) {
+  const rated = S.items.filter((i) => i.kind !== 'memo').map((i) => {
+    const vs = Object.values(i.ratings || {}).filter((x) => x > 0);
+    return { i, avg: vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : 0, n: vs.length };
+  }).filter((x) => x.n).sort((a, b) => b.avg - a.avg || b.n - a.n).slice(0, 3);
+  const ppl = peopleOf(t); let wallet = null;
+  if (ppl.length > 1 && S.expenses.length) {
+    const { paid } = settle(t);
+    const top = Object.entries(paid).sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] > 0) wallet = top;
+  }
+  const food = S.items.filter((i) => i.cat === '맛집').length;
+  if (!rated.length && !wallet && !food) return '';
+  const medal = ['🥇', '🥈', '🥉'];
+  return `<h3 class="rc-h">🏆 우리끼리 어워드</h3><div class="aw">
+    ${rated.length ? `<div class="aw-card best"><div class="aw-t">⭐ 별점 베스트</div>${rated.map((x, k) => `<div class="aw-row"><span>${medal[k]}</span><b>${esc(x.i.title)}</b><i>★${x.avg.toFixed(1)}</i></div>`).join('')}</div>` : ''}
+    ${wallet ? `<div class="aw-card"><div class="aw-big">👛</div><div class="aw-t">든든한 지갑상</div><b>${esc(wallet[0])}</b><i>${won(wallet[1])} 결제</i></div>` : ''}
+    ${food ? `<div class="aw-card"><div class="aw-big">🍜</div><div class="aw-t">먹방 기록</div><b>${food}끼</b><i>${food >= 8 ? '배 터지는 여행' : food >= 4 ? '알차게 냠냠' : '소소하게 냠'}</i></div>` : ''}
+  </div>`;
+}
+const noteName = (t, n) => t.memberNames?.[n.by] || nameOf(t, n.by);
+const MOODS = ['🥰', '😆', '😋', '🥹', '😴', '🤯'];
+const STICKERS = ['💌', '🫶', '🍻', '🐻', '🌸', '👍', '🎉', '🍀'];
+const NOTE_BG = ['#FFE9A8', '#FFD6E0', '#D6ECFF', '#DDF5D9', '#EBDDFF'];
+async function drawNotes(t, box) {
+  let notes = [];
+  try {
+    const snap = await getDocs(collection(db, 'trips', t.id, 'notes'));
+    notes = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  } catch (e) { console.error(e); }
+  const mine = myName(t); const others = peopleOf(t).filter((p) => p !== mine);
+  const st = box._st || (box._st = { mode: 'review', mood: '🥰', to: others[0] || null, sticker: '💌', draft: '' });
+  if (!others.length) st.mode = 'review';
+  const reviews = notes.filter((n) => !n.to); const letters = notes.filter((n) => n.to);
+  const delBtn = (n) => (n.by === S.user.uid ? `<button class="nt-del" data-rw="del" data-id="${esc(n.id)}">✕</button>` : '');
+  box.innerHTML = `
+    <h3 class="rc-h">✍️ 여행 후기</h3>
+    ${reviews.length ? `<div class="rv-list">${reviews.map((n) => `<div class="rv">${delBtn(n)}<div class="rv-mood">${esc(n.mood || '🥰')}</div>
+      <div style="min-width:0"><div class="rv-who">${nameAvatar(t, noteName(t, n), 20)}<b>${esc(noteName(t, n))}</b></div><p>${esc(n.text)}</p></div></div>`).join('')}</div>`
+      : '<div class="rc-empty">아직 후기가 없어요. 첫 후기를 남겨 보세요 ✨</div>'}
+    ${others.length ? `<h3 class="rc-h">💌 서로에게 한마디</h3>
+      ${letters.length ? `<div class="lt-list">${letters.map((n, k) => `<div class="lt ${n.to === mine ? 'forme' : ''}" style="--bg:${NOTE_BG[k % NOTE_BG.length]};--rot:${k % 2 ? 1.6 : -1.4}deg">${delBtn(n)}
+        <div class="lt-to">To. ${esc(n.to)}${n.to === mine ? ' <i>나에게 온 편지</i>' : ''}</div><div class="lt-st">${esc(n.sticker || '💌')}</div>
+        <p>${esc(n.text)}</p><div class="lt-from">From. ${esc(noteName(t, n))}</div></div>`).join('')}</div>`
+        : '<div class="rc-empty">고마웠던 거, 웃겼던 거 한마디 남겨 보세요 💌</div>'}` : ''}
+    <div class="rc-write">
+      ${others.length ? `<div class="rw-tabs"><button data-rw="mode" data-v="review" class="${st.mode === 'review' ? 'on' : ''}">✍️ 후기 쓰기</button><button data-rw="mode" data-v="letter" class="${st.mode === 'letter' ? 'on' : ''}">💌 한마디 쓰기</button></div>` : ''}
+      ${st.mode === 'review'
+        ? `<div class="rw-lbl">이번 여행 기분은?</div><div class="rw-pick">${MOODS.map((m) => `<button data-rw="mood" data-v="${m}" class="${m === st.mood ? 'on' : ''}">${m}</button>`).join('')}</div>`
+        : `<div class="rw-lbl">누구에게?</div><div class="rw-pick names">${others.map((p) => `<button data-rw="to" data-v="${esc(p)}" class="${p === st.to ? 'on' : ''}">${nameAvatar(t, p, 20)}${esc(p)}</button>`).join('')}</div>
+           <div class="rw-lbl">스티커 붙이기</div><div class="rw-pick">${STICKERS.map((m) => `<button data-rw="sticker" data-v="${m}" class="${m === st.sticker ? 'on' : ''}">${m}</button>`).join('')}</div>`}
+      <textarea class="inp" id="rwText" rows="3" maxlength="300" placeholder="${st.mode === 'review' ? '제일 좋았던 순간, 다음엔 꼭 할 것…' : `${esc(st.to || '')}에게 하고 싶은 말`}">${esc(st.draft)}</textarea>
+      <button class="btn pri block" data-rw="save">${st.mode === 'review' ? '후기 남기기 ✨' : '한마디 보내기 💌'}</button>
+    </div>`;
+  return notes;
+}
+async function onNotesClick(e, t, box, syncCopy) {
+  const b = e.target.closest('[data-rw]'); if (!b) return;
+  const st = box._st; const ta = box.querySelector('#rwText'); if (ta) st.draft = ta.value;
+  const k = b.dataset.rw, val = b.dataset.v;
+  if (k === 'mode' || k === 'mood' || k === 'to' || k === 'sticker') { st[k] = val; syncCopy(await drawNotes(t, box)); return; }
+  if (k === 'del') {
+    if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = '지울까요?'; return; }
+    await write(() => deleteDoc(doc(db, 'trips', t.id, 'notes', b.dataset.id)));
+    syncCopy(await drawNotes(t, box)); return;
+  }
+  if (k === 'save') {
+    const text = st.draft.trim(); if (!text) return toast(st.mode === 'review' ? '후기를 한 줄이라도 적어 주세요' : '한마디를 적어 주세요');
+    const data = st.mode === 'review'
+      ? { text, mood: st.mood, to: null }
+      : { text, sticker: st.sticker, to: st.to };
+    b.disabled = true;
+    await write(() => setDoc(doc(db, 'trips', t.id, 'notes', uid()), { ...data, by: S.user.uid, createdAt: Date.now() }));
+    st.draft = '';
+    syncCopy(await drawNotes(t, box));
+    toast(st.mode === 'review' ? '후기를 남겼어요 ✨' : `${st.to}에게 한마디를 보냈어요 💌`);
+  }
 }
 
 /* ---------- 날씨 ---------- */
@@ -1200,7 +1289,7 @@ function tripForm(t) {
 }
 async function deleteTripData(t) {
   const id = t.id;
-  for (const name of ['items', 'expenses', 'flights', 'files', 'places']) {
+  for (const name of ['items', 'expenses', 'flights', 'files', 'places', 'notes']) {
     const snap = await getDocs(collection(db, 'trips', id, name));
     let batch = writeBatch(db); let n = 0;
     for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }
