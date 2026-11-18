@@ -7,13 +7,13 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: '여행노트',
-        short_name: '여행노트',
+        name: '슝',
+        short_name: '슝',
         description: '일정·지도·항공권·가계부를 한 곳에서, 동행인과 같이',
         lang: 'ko',
         start_url: '/',
         display: 'standalone',
-        background_color: '#F2F4F6',
+        background_color: '#2E5BFF',
         theme_color: '#F2F4F6',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },

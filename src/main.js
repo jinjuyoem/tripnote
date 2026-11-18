@@ -157,14 +157,23 @@ async function write(fn) {
 const I = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
-  logo: '<svg viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#2E5BFF"/><path d="M13 35C15 24 22 17 31 14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-dasharray=".1 5.2"/><circle cx="12.5" cy="35.5" r="3.6" fill="#FF7A59"/><g transform="translate(29 5) scale(.62) rotate(62 12 12)"><path fill="#fff" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></g></svg>',
+  logo: '<svg viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#2E5BFF"/><path d="M13 35C15 24 22 17 31 14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-dasharray=".1 5.2"/><circle cx="12.5" cy="35.5" r="3.6" fill="#FFD66B"/><g transform="translate(29 5) scale(.62) rotate(62 12 12)"><path fill="#fff" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></g></svg>',
   plane: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
 };
 
 /* ---------------- render ---------------- */
+const splashStart = performance.now();
+let splashGone = false;
+function hideSplash() {
+  if (splashGone) return; splashGone = true;
+  const el = document.getElementById('splash'); if (!el) return;
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, Math.max(0, 1100 - (performance.now() - splashStart)));
+}
+setTimeout(hideSplash, 4000); // 혹시 로딩이 오래 걸려도 4초면 닫기
 function render() {
   const t = trip();
+  if (S.authReady) hideSplash();
   if (!S.authReady) { $('hdr').innerHTML = ''; $('view').innerHTML = '<div class="empty">불러오는 중…</div>'; return showMap(false); }
   if (!S.user) return viewLogin();
   if (S.tripId && t) viewTrip(t); else viewHome();
@@ -175,7 +184,7 @@ function viewLogin() {
   $('view').innerHTML = `
     <div class="login">
       <div class="logo">${I.logo}</div>
-      <h1>여행노트</h1>
+      <h1>슝</h1>
       <p class="muted">일정·지도·항공권·가계부를 한 곳에서.<br>동행인과 같이 보고 같이 고쳐요.</p>
       ${pendingJoin ? '<p class="invite-note">초대받은 여행이 있어요. 로그인하면 바로 참여돼요.</p>' : ''}
       <button class="btn pri block" id="loginBtn">Google로 시작하기</button>
@@ -216,7 +225,7 @@ function guideSheet() {
   const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER|Line\//.test(ua);
   const iosSteps = `<ol class="gsteps"><li><b>Safari</b>로 열기 <span>(크롬·카톡 안에서는 안 돼요)</span></li><li>아래 가운데 <b>공유 버튼 <span class="gk">□↑</span></b> 누르기</li><li>아래로 내려서 <b>'홈 화면에 추가'</b> → <b>추가</b></li></ol>`;
   const andSteps = `<ol class="gsteps"><li><b>크롬</b>으로 열기</li><li>오른쪽 위 <b class="gk">⋮</b> 누르기</li><li><b>'앱 설치'</b> 또는 <b>'홈 화면에 추가'</b> 누르기</li></ol>`;
-  openSheet(`<h2>📖 여행노트 사용 방법</h2>
+  openSheet(`<h2>📖 슝 사용 방법</h2>
     <div class="gsec"><h3>📲 앱처럼 설치하기</h3>
       ${isStandalone() ? '<p class="gok">✅ 지금 앱으로 쓰고 있어요!</p>' : ''}
       ${inApp ? '<p class="gwarn">카톡·인스타 안에서 열었어요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 먼저 눌러 주세요.</p>' : ''}
@@ -238,7 +247,7 @@ function guideSheet() {
 }
 function viewHome() {
   showMap(false); $('banner').innerHTML = '';
-  $('hdr').innerHTML = `<h1 class="brand"><span class="brand-mark">${I.logo}</span>여행노트</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
+  $('hdr').innerHTML = `<h1 class="brand"><span class="brand-mark">${I.logo}</span>슝</h1><button class="avbtn" data-act="account" aria-label="내 프로필">${avatar(S.user.uid, 38)}</button>`;
   const list = [...S.trips].sort((a, b) => (b.start || '').localeCompare(a.start || ''));
   const up = list.filter((t) => dday(t) !== '완료'), past = list.filter((t) => dday(t) === '완료');
   const card = (t) => `<button class="ticket" data-act="open" data-id="${esc(t.id)}">
@@ -1517,7 +1526,7 @@ function tripForm(t) {
       sh.querySelector('#invOut').innerHTML = `<div class="invlink mono">${esc(url)}</div>
         <div class="rowbtns"><button class="btn ghost" data-x="cp">링크 복사</button>${navigator.share ? '<button class="btn pri" data-x="sh">공유하기</button>' : ''}</div>`;
       sh.querySelector('[data-x=cp]').onclick = () => copy(url, '초대 링크를 복사했어요');
-      sh.querySelector('[data-x=sh]')?.addEventListener('click', () => navigator.share({ title: `${t.name} 초대`, text: `여행노트에서 '${t.name}' 같이 보자!`, url }).catch(() => {}));
+      sh.querySelector('[data-x=sh]')?.addEventListener('click', () => navigator.share({ title: `${t.name} 초대`, text: `슝에서 '${t.name}' 같이 보자!`, url }).catch(() => {}));
     });
     sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${t.name}' 여행을 삭제할까요? 일정·항공권·가계부가 모두 지워지고 되돌릴 수 없어요.`, '삭제', () => deleteTrip(t)));
   });

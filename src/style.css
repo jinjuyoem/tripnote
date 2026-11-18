@@ -656,7 +656,7 @@ input[type=date].inp{background:var(--fill);height:50px}
    브랜드: 여행노트 블루 #2E5BFF, 출발점 코랄 #FF7A59, '점선 항로' 모티프.
    글자는 한 단계 작게, 면 사이 간격은 넉넉하게.
    ================================================================ */
-:root{--accent:#2E5BFF;--sky:#2E5BFF;--blue-soft:#EEF2FF;--coral:#FF7A59}
+:root{--accent:#2E5BFF;--sky:#2E5BFF;--blue-soft:#EEF2FF;--coral:#FFD66B;--butter:#FFD66B}
 html,body{font-size:14px}
 .wrap{padding:8px 20px}
 header{padding:calc(16px + var(--st)) 20px 10px;min-height:58px}
