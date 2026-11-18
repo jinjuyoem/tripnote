@@ -418,3 +418,24 @@ textarea.inp{resize:vertical;min-height:64px}
 .gtips li{display:flex;gap:10px;font-size:13px;line-height:1.5;color:var(--ink2)}
 .gtips li>span{font-size:18px;width:24px;text-align:center;flex:none}
 .gtips b{display:block;color:var(--ink);font-size:14px}
+/* 날짜 입력 (아이폰에서 칸이 찌그러지던 것) */
+input[type=date].inp{-webkit-appearance:none;appearance:none;display:block;min-width:0;width:100%;height:46px;line-height:22px;text-align:left;color:var(--ink);background:#fff}
+input[type=date].inp::-webkit-date-and-time-value{text-align:left;margin:0;min-height:22px}
+input[type=date].inp::-webkit-calendar-picker-indicator{opacity:.45;margin-left:auto}
+input[type=date].inp:not(:valid),input[type=date].inp[value=""]{color:var(--ink2)}
+/* 택시 */
+.taxibtn{border:0;background:#FFE14D;color:#1F1A00;font:inherit;font-size:11px;font-weight:700;border-radius:99px;padding:3px 9px;cursor:pointer;white-space:nowrap}
+.lane .seg.sm .taxibtn{font-size:10px;padding:2px 7px}
+.taxiroute{display:flex;align-items:center;gap:8px;background:#FBF8F1;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.taxiroute>div{flex:1;min-width:0}
+.taxiroute span{display:block;font-size:11px;color:var(--ink2)}
+.taxiroute b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.taxiroute em{font-style:normal;color:var(--ink2)}
+.taxiapps{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.taxiapp{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff;text-decoration:none;color:var(--ink)}
+.taxiapp b{display:block;font-size:15px}
+.taxiapp i{font-style:normal;font-size:12px;color:var(--ink2)}
+.ta-ico{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-weight:800;font-size:18px;flex:none}
+.taxiapp.kakao .ta-ico{background:#FFE14D;color:#1F1A00}
+.taxiapp.uber .ta-ico{background:#000;color:#fff}
+.installcard .btn{white-space:nowrap;flex:none}

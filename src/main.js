@@ -156,7 +156,7 @@ async function write(fn) {
 /* ---------------- icons ---------------- */
 const I = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>',
-  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
   plane: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
 };
@@ -185,6 +185,28 @@ function viewLogin() {
 const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 안 돼도 괜찮음 */ } };
+/** 택시 앱으로 넘기기: 출발·도착 좌표를 채워서 */
+function taxiSheet(from, to) {
+  const f = { lat: from.lat, lng: from.lng, name: from.title || '출발' }, d = { lat: to.lat, lng: to.lng, name: to.title || '도착' };
+  const q = (o) => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  const uber = 'https://m.uber.com/ul/?' + q({ action: 'setPickup', 'pickup[latitude]': f.lat, 'pickup[longitude]': f.lng, 'pickup[nickname]': f.name, 'dropoff[latitude]': d.lat, 'dropoff[longitude]': d.lng, 'dropoff[nickname]': d.name });
+  const kakao = 'kakaot://taxi?' + q({ origin_lat: f.lat, origin_lng: f.lng, origin_name: f.name, dest_lat: d.lat, dest_lng: d.lng, dest_name: d.name });
+  const addr = (S.items.find((i) => i.id === to.id)?.address) || d.name;
+  openSheet(`<h2>🚕 택시 부르기</h2>
+    <div class="taxiroute"><div><span>출발</span><b>${esc(f.name)}</b></div><em>→</em><div><span>도착</span><b>${esc(d.name)}</b></div></div>
+    <div class="taxiapps">
+      <a class="taxiapp kakao" href="${esc(kakao)}" data-x="kakao"><span class="ta-ico">T</span><div><b>카카오 T</b><i>한국 · 일본 · 베트남</i></div></a>
+      <a class="taxiapp uber" href="${esc(uber)}" target="_blank" rel="noopener"><span class="ta-ico">U</span><div><b>Uber</b><i>일본 · 홍콩 · 대만 · 해외 대부분</i></div></a>
+    </div>
+    <button type="button" class="btn ghost block" data-x="copy">📋 도착지 주소 복사</button>
+    <p class="small muted" style="margin-top:10px">앱이 깔려 있으면 바로 열려요. Uber는 출발·도착이 채워져서 열리고, 카카오 T는 버전에 따라 도착지를 한 번 더 확인해야 할 수 있어요. 그럴 땐 복사한 주소를 붙여넣으세요.</p>`, (sh) => {
+    sh.querySelector('[data-x=copy]').onclick = () => copy(addr, '도착지 주소를 복사했어요');
+    sh.querySelector('[data-x=kakao]').addEventListener('click', () => {
+      copy(addr, '도착지 주소도 복사해 뒀어요');
+      setTimeout(() => { if (document.visibilityState === 'visible') toast('카카오 T 앱이 안 열리면 설치가 필요해요'); }, 1800);
+    });
+  });
+}
 /** 사용 방법 (홈 화면에 추가하는 법 + 기능 안내) */
 function guideSheet() {
   const ua = navigator.userAgent || '';
@@ -882,6 +904,7 @@ function segRow(t, from, to, cls = '', label = '') {
       ${Object.entries(MOVES).map(([k, v]) => `<option value="${k}" ${k === shown ? 'selected' : ''}>${v[0]} ${cls ? '' : v[1]}</option>`).join('')}
     </select>
     <span class="seginfo" data-seginfo="${esc(sid)}">${segText(from, to, mode)}</span>
+    ${shown === 'drive' ? `<button type="button" class="taxibtn" data-act="taxi" data-id="${esc(sid)}">🚕 택시</button>` : ''}
     <a class="seglink" data-seglink="${esc(sid)}" href="${esc(dirUrl(from, to, shown))}" target="_blank" rel="noopener">길찾기</a>
   </div>`;
 }
@@ -1811,6 +1834,7 @@ document.addEventListener('click', (ev) => {
     case 'account': accountSheet(); break;
     case 'newTrip': tripForm(null); break;
     case 'guide': guideSheet(); break;
+    case 'taxi': { ev.stopPropagation(); const sg = stopMap.get(id); if (sg) taxiSheet(sg.from, sg.to); break; }
     case 'hideInstall': lsSet('tn_install_hide', '1'); render(); break;
     case 'editTrip': tripForm(t); break;
     case 'tab': S.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
@@ -1833,7 +1857,17 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'ordering': S.ordering = !S.ordering; render(); break;
-    case 'viewAs': S.viewAs = el.dataset.v || null; render(); document.querySelector('.days')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
+    case 'viewAs': {
+      // 화면 위치 유지: 누른 갈래 자리에 그 사람 일정이 오도록
+      const fork = el.closest('.fork'); const y0 = scrollY;
+      const anchorTop = fork ? fork.getBoundingClientRect().top : null;
+      const toks = fork ? [...fork.querySelectorAll('[data-lp]')].map((x) => x.dataset.lp) : [];
+      S.viewAs = el.dataset.v || null; render();
+      const target = toks.length ? [...document.querySelectorAll('.timeline > [data-lp]')].find((x) => toks.includes(x.dataset.lp)) : null;
+      if (target && anchorTop != null) window.scrollTo(0, scrollY + target.getBoundingClientRect().top - anchorTop);
+      else window.scrollTo(0, y0);
+      break;
+    }
     case 'wishcat': S.wishCat = el.dataset.v; render(); break;
     case 'newWish': wishForm(t, null); break;
     case 'editWish': wishForm(t, S.places.find((x) => x.id === id)); break;
