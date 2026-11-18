@@ -168,9 +168,9 @@ let splashGone = false;
 function hideSplash() {
   if (splashGone) return; splashGone = true;
   const el = document.getElementById('splash'); if (!el) return;
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, Math.max(0, 1100 - (performance.now() - splashStart)));
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 700); }, Math.max(0, 2800 - (performance.now() - splashStart)));
 }
-setTimeout(hideSplash, 4000); // 혹시 로딩이 오래 걸려도 4초면 닫기
+setTimeout(hideSplash, 5000); // 혹시 로딩이 오래 걸려도 5초면 닫기
 function render() {
   const t = trip();
   if (S.authReady) hideSplash();
