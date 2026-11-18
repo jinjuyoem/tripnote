@@ -32,7 +32,7 @@ const trip = () => S.trips.find((t) => t.id === S.tripId);
 const me = () => S.profiles.get(S.user?.uid)?.name || S.user?.displayName || S.user?.email?.split('@')[0] || '나';
 
 /* 프로필 사진: 직접 올린 사진 > 구글 사진 > 이름 첫 글자 */
-const AV_COLORS = ['#E2552D', '#2D6BE2', '#2F7D5B', '#9B3A93', '#D79A16', '#0E8A9A'];
+const AV_COLORS = ['#2F6BFF', '#F0532D', '#0A9E62', '#A23ED1', '#F5A623', '#00A3BF'];
 function avatar(uid, size = 32, fallbackName = '') {
   const p = S.profiles.get(uid) || {};
   const name = p.name || (uid === S.user?.uid ? me() : fallbackName) || '?';
@@ -53,7 +53,7 @@ const flightWho = (t, f) => (f.who && f.who.length ? f.who : f.by && t?.memberNa
 /** 탑승자: 큰 프로필 사진 + 이름 */
 function paxList(t, names) {
   const byName = {}; Object.entries(t?.memberNames || {}).forEach(([u, n]) => { byName[n] = u; byName[S.profiles.get(u)?.name || n] = u; });
-  return names.map((n) => `<span class="pax">${byName[n] ? avatar(byName[n], 34, n) : `<span class="av" style="width:34px;height:34px;background:#8C8778;font-size:14px">${esc([...n][0] || '?')}</span>`}<b>${esc(n)}</b></span>`).join('');
+  return names.map((n) => `<span class="pax">${byName[n] ? avatar(byName[n], 34, n) : `<span class="av" style="width:34px;height:34px;background:#8B95A1;font-size:14px">${esc([...n][0] || '?')}</span>`}<b>${esc(n)}</b></span>`).join('');
 }
 async function loadProfiles(uids) {
   const need = uids.filter((u) => !S.profiles.has(u));
@@ -587,7 +587,7 @@ let shownSegs = [];
 const rowIdOf = (r) => (r.kind === 'item' ? r.i.id : `${r.f.id}~${r.f._kind}`);
 function nameAvatar(t, n, size = 22) {
   const u = (t.members || []).find((x) => t.memberNames?.[x] === n || S.profiles.get(x)?.name === n);
-  return u ? avatar(u, size, n) : `<span class="av" style="width:${size}px;height:${size}px;background:#8C8778;font-size:${Math.round(size * 0.45)}px">${esc([...n][0] || '?')}</span>`;
+  return u ? avatar(u, size, n) : `<span class="av" style="width:${size}px;height:${size}px;background:#8B95A1;font-size:${Math.round(size * 0.45)}px">${esc([...n][0] || '?')}</span>`;
 }
 /** 누구 일정 보기 버튼 */
 function viewAsBtns(t, cur) {

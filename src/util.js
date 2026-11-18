@@ -26,9 +26,9 @@ export function dday(t) {
   return '완료';
 }
 
-export const ICATS = { 관광: ['#E7EEFB', '#2D6BE2'], 맛집: ['#FBE3D9', '#C2421B'], 카페: ['#F3E8DA', '#8A5A2B'], 쇼핑: ['#F4E4F3', '#9B3A93'], 숙소: ['#E4F1EA', '#2F7D5B'], 이동: ['#ECEDEF', '#4B5262'], 기타: ['#F1EEE6', '#6E6650'] };
-export const ECATS = { 식비: '#E2552D', 교통: '#2D6BE2', 숙소: '#2F7D5B', 쇼핑: '#9B3A93', 관광: '#D79A16', 항공: '#1F2A44', 기타: '#8C8778' };
-export const DAYCOLORS = ['#E2552D', '#2D6BE2', '#2F7D5B', '#9B3A93', '#D79A16', '#0E8A9A', '#C2421B', '#5B5FC7'];
+export const ICATS = { 관광: ['#EBF2FF', '#2F6BFF'], 맛집: ['#FFEDE8', '#F0532D'], 카페: ['#F6EFE7', '#A0612B'], 쇼핑: ['#F7EBFB', '#A23ED1'], 숙소: ['#E6F7EF', '#0A9E62'], 이동: ['#EEF1F4', '#4E5968'], 기타: ['#F2F4F6', '#8B95A1'] };
+export const ECATS = { 식비: '#F0532D', 교통: '#2F6BFF', 숙소: '#0A9E62', 쇼핑: '#A23ED1', 관광: '#F5A623', 항공: '#191F28', 기타: '#8B95A1' };
+export const DAYCOLORS = ['#2F6BFF', '#F0532D', '#0A9E62', '#A23ED1', '#F5A623', '#00A3BF', '#E5398B', '#5B5FC7'];
 // 엔화·동·루피아는 100단위로 환율을 보는 게 익숙해서 입력/표시를 100단위로
 export const rateUnit = (cur) => (['JPY', 'VND', 'IDR'].includes(cur) ? 100 : 1);
 export const MOVES = { walk: ['🚶', '도보', 'WALK', 'walking'], transit: ['🚇', '대중교통', 'TRANSIT', 'transit'], drive: ['🚗', '차', 'DRIVE', 'driving'], bike: ['🚲', '자전거', 'BICYCLE', 'bicycling'] };
