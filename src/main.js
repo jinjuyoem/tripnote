@@ -666,8 +666,15 @@ function viewPlan(t, days) {
     const c = dayItems(d).length; const w = W[d];
     return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span>${w ? `<i class="dwx wx-${wxKind(w.emoji)}">${w.emoji} ${Math.round(w.max)}°</i>` : ''}</button>`;
   }).join('')}</div>
-  ${wx ? `<div class="wxbar ${wx.kind} wx-${wxKind(wx.emoji)}"><span class="wxe">${wx.emoji}</span><div><b>${esc(wx.text || '')} ${Math.round(wx.max)}° / ${Math.round(wx.min)}°</b>
-      <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
+  ${wx ? `<div class="wxcard ${wx.kind} wx-${wxKind(wx.emoji)}">
+      <div class="wxc-l"><div class="wxc-place">${esc(t.city || '여행지')}${S.day && !S.day.startsWith('day') ? ` · ${esc(md(S.day))}` : ''}</div>
+        <div class="wxc-temp">${Math.round(wx.max)}°</div>
+        <div class="wxc-cond">${esc(wx.text || '')}</div>
+        <div class="wxc-hl">최고 ${Math.round(wx.max)}° · 최저 ${Math.round(wx.min)}°</div></div>
+      <div class="wxc-r"><span class="wxc-e">${wx.emoji}</span>
+        <span class="wxc-sub">${wx.kind === 'forecast' ? (wx.pop != null ? `☂︎ ${wx.pop}%` : '예보') : `작년 이맘때${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div>
+      ${wx.kind === 'forecast' ? '' : '<div class="wxc-note">예보는 출발 10일 전부터 떠요</div>'}
+    </div>` : ''}
   ${va ? `<div class="vabar"><b>${nameAvatar(t, va, 22)}${esc(va)} 일정으로 보는 중</b>${viewAsBtns(t, va)}</div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
   <div class="planbar">${items.length > 1 ? '<span class="lphint">꾹 눌러서 순서 바꾸기</span>' : ''}<button class="ordbtn" data-act="newMemo">📝 메모 추가</button></div>
