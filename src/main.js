@@ -2,7 +2,7 @@ import './style.css';
 import {
   auth, db, login, logout, watchAuth, reauth, deleteMe,
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
-  getDoc, arrayUnion, writeBatch, getDocs, deleteField,
+  getDoc, arrayUnion, writeBatch, getDocs, deleteField, idToken,
 } from './firebase.js';
 import { createMap, mountPlaceSearch, mapsEnabled, computeRoute, geocodeAirport } from './maps.js';
 import { tripWeather, geocodeCity } from './weather.js';
@@ -1194,6 +1194,52 @@ function toPlanSheet(t, p) {
 /* ---------- flights ---------- */
 const sortFlights = () => [...S.flights].sort((a, b) => (a.depAt || '').localeCompare(b.depAt || ''));
 function fdate(dt) { return dt ? `${md(dt)} ${hm(dt)}` : ''; }
+/* ---------- 항공편 조회 (편명 불러오기 · 상태 체크) ---------- */
+async function fetchFlight(no, date) {
+  const tok = await idToken();
+  const r = await fetch(`/api/flight?no=${encodeURIComponent(no)}&date=${encodeURIComponent(date)}`, { headers: { Authorization: `Bearer ${tok}` } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'fail');
+  return j.flights || [];
+}
+const flightErr = (e) => ({ nokey: '항공 조회 키가 아직 설정 안 됐어요', quota: '이번 달 무료 조회를 다 썼어요', login: '다시 로그인해 주세요', input: '편명이랑 날짜를 확인해 주세요' }[e.message] || '항공 정보를 못 불러왔어요. 잠시 뒤 다시 해 주세요');
+// "2026-12-05 09:00+09:00" → {d:'2026-12-05', t:'09:00', ms}
+const lt = (s) => (s ? { d: s.slice(0, 10), t: s.slice(11, 16), ms: Date.parse(s.replace(' ', 'T')) } : null);
+const FSTATUS = {
+  Unknown: ['❔', '정보 없음', 'gray'], Expected: ['🟢', '정시 예정', 'ok'], CheckIn: ['🧳', '체크인 중', 'ok'], Boarding: ['🔵', '탑승 중', 'go'],
+  GateClosed: ['🚪', '탑승 마감', 'go'], Departed: ['🛫', '출발함', 'go'], EnRoute: ['✈️', '비행 중', 'go'], Delayed: ['🟠', '지연', 'warn'],
+  Approaching: ['🛬', '착륙 준비', 'go'], Arrived: ['✅', '도착함', 'ok'], Canceled: ['⛔', '결항', 'bad'], Diverted: ['↪️', '회항', 'bad'], CanceledUncertain: ['⚠️', '결항 가능성', 'bad'],
+};
+function liveHtml(f) {
+  const L = f.live; if (!L) return '';
+  if (L.notFound) return `<div class="live gray"><b>❔ 이 날짜 운항 정보를 못 찾았어요</b><span>${esc(agoText(L.checkedAt))} 확인</span></div>`;
+  const dd = L.dep || {}, aa = L.arr || {};
+  const s0 = lt(dd.sched), s1 = lt(dd.actual || dd.revised);
+  const late = s0 && s1 ? Math.round((s1.ms - s0.ms) / 6e4) : 0;
+  let st = FSTATUS[L.status] || FSTATUS.Unknown;
+  if (late >= 15 && !['Canceled', 'Arrived', 'Diverted'].includes(L.status)) st = ['🟠', `${late}분 지연`, 'warn'];
+  const tm = (x) => { const a = lt(x.sched), b = lt(x.actual || x.revised); if (!a) return '-'; return b && b.t !== a.t ? `<s>${a.t}</s> <b>${b.t}</b>` : `<b>${a.t}</b>`; };
+  return `<div class="live ${st[2]}">
+    <div class="live-h"><b>${st[0]} ${esc(st[1])}</b><span>${esc(agoText(L.checkedAt))} 확인</span></div>
+    <div class="live-g">
+      <div><i>출발 ${esc(dd.iata || '')}</i>${tm(dd)}${dd.terminal || dd.gate ? `<small>${dd.terminal ? 'T' + esc(String(dd.terminal).replace(/^T/i, '')) : ''}${dd.gate ? ' · 게이트 ' + esc(dd.gate) : ''}</small>` : ''}</div>
+      <div><i>도착 ${esc(aa.iata || '')}</i>${tm(aa)}${aa.terminal || aa.belt ? `<small>${aa.terminal ? 'T' + esc(String(aa.terminal).replace(/^T/i, '')) : ''}${aa.belt ? ' · 수하물 ' + esc(aa.belt) : ''}</small>` : ''}</div>
+    </div></div>`;
+}
+const agoText = (ms) => { if (!ms) return ''; const m = Math.round((Date.now() - ms) / 6e4); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`; };
+async function checkFlight(t, id, btn) {
+  const f = S.flights.find((x) => x.id === id); if (!f) return;
+  if (!f.flightNo || !f.depAt) return toast('편명이랑 출발 날짜를 먼저 넣어 주세요');
+  if (f.live?.checkedAt && Date.now() - f.live.checkedAt < 5 * 6e4) return toast('방금 확인했어요. 5분 뒤에 다시 눌러 주세요');
+  if (btn) { btn.disabled = true; btn.textContent = '확인 중…'; }
+  try {
+    const list = await fetchFlight(f.flightNo, f.depAt.slice(0, 10));
+    const m = list.find((x) => (!f.from || x.dep.iata === f.from) && (!f.to || x.arr.iata === f.to)) || list[0];
+    const live = m ? { status: m.status, dep: m.dep, arr: m.arr, checkedAt: Date.now() } : { notFound: true, checkedAt: Date.now() };
+    f.live = live; render();
+    write(() => updateDoc(doc(db, 'trips', t.id, 'flights', id), { live }));
+  } catch (e) { toast(flightErr(e)); render(); }
+}
 function viewFlights() {
   const list = sortFlights();
   if (!list.length) return '<div class="empty"><b>등록된 항공권이 없어요</b>예약한 항공편을 넣어두면 일정에 자동으로 표시돼요.</div>';
@@ -1213,11 +1259,12 @@ function viewFlights() {
         ${f.terminal ? `<div><span>터미널</span><b>${esc(f.terminal)}</b></div>` : ''}
         ${f.baggage ? `<div><span>수하물</span><b>${esc(f.baggage)}</b></div>` : ''}
       </div>
+      ${liveHtml(f)}
       ${f.memo ? `<div class="imemo" style="margin-top:8px">${esc(f.memo)}</div>` : ''}
       ${(f.qrIds || []).length ? `<div class="qrrow">${f.qrIds.map((q, k) => `<button class="qrthumb" data-act="qrview" data-flight="${esc(f.id)}" data-idx="${k}">${qrCache.get(q) && qrCache.get(q) !== 'loading' ? `<img src="${qrCache.get(q)}" alt="QR ${k + 1}">` : '<span>QR</span>'}</button>`).join('')}
         <button class="btn dark qrbig" data-act="qrview" data-flight="${esc(f.id)}" data-idx="0">📱 체크인 QR 크게 보기</button></div>` : ''}
       <div class="iactions" style="margin-top:10px">
-        ${f.flightNo ? `<a class="lnk map" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent((f.flightNo || '').replace(/\s/g, '') + ' 항공편')}">운항 상태</a>` : ''}
+        ${f.flightNo ? `<button class="lnk live-btn" data-act="checkFlight" data-id="${esc(f.id)}">✈️ 상태 체크하기</button>` : ''}
         <button class="lnk" data-act="editFlight" data-id="${esc(f.id)}">수정</button>
       </div></div>`;
   }).join('');
@@ -1557,7 +1604,8 @@ function flightForm(t, f) {
     <label class="f"><span>구분</span>${pills('kind', ['가는편', '오는편', '경유·기타'], f.kind)}</label>
     <label class="f"><span>탑승자 (이 비행기 타는 사람)</span>${pills('who', whoOpts, whoSel, true)}</label>
     <div class="two"><label class="f"><span>항공사</span><input class="inp" name="airline" value="${esc(f.airline)}" placeholder="예: 제주항공"></label>
-      <label class="f"><span>편명</span><input class="inp mono" name="flightNo" value="${esc(f.flightNo)}" placeholder="예: 7C1301" autocapitalize="characters"></label></div>
+      <label class="f"><span>편명</span><div class="fnrow"><input class="inp mono" name="flightNo" value="${esc(f.flightNo)}" placeholder="예: 7C1301" autocapitalize="characters"><button type="button" class="btn dark small" data-x="lookup">불러오기</button></div></label></div>
+    <div class="hint" style="margin:-6px 0 12px">출발 날짜를 고르고 편명 옆 <b>불러오기</b>를 누르면 공항·시간·터미널이 자동으로 채워져요.</div>
     <div class="two"><label class="f"><span>출발 공항</span><input class="inp mono" name="from" value="${esc(f.from)}" placeholder="ICN" autocapitalize="characters"></label>
       <label class="f"><span>도착 공항</span><input class="inp mono" name="to" value="${esc(f.to)}" placeholder="KIX" autocapitalize="characters"></label></div>
     <div class="f"><span class="flbl">출발 (출발지 현지 시각)</span><div class="two"><input class="inp" type="date" name="depDate" value="${esc((f.depAt || '').slice(0, 10))}">${timeField('depTime', (f.depAt || '').slice(11, 16), '출발 시간')}</div></div>
@@ -1586,6 +1634,30 @@ function flightForm(t, f) {
     const followDep = () => { const dep = getDT('dep'); if (dep) setArr(plusHf(dep, gapH)); };
     const plusHf = (dt, h) => { const d = new Date(dt + ':00'); d.setMinutes(d.getMinutes() + Math.round(h * 60)); return `${fmtD(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
     sh.querySelector('[name=depDate]').addEventListener('change', followDep);
+    sh.querySelector('[data-x=lookup]').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const b = e.currentTarget; const no = v('flightNo').toUpperCase().replace(/\s/g, '');
+      const date = sh.querySelector('[name=depDate]').value || t.start;
+      if (!no) return toast('편명을 먼저 적어 주세요');
+      if (!date) return toast('출발 날짜를 먼저 골라 주세요');
+      b.disabled = true; b.textContent = '찾는 중…';
+      try {
+        const list = await fetchFlight(no, date);
+        const m = list[0];
+        if (!m) { toast(`${date} ${no} 운항 정보를 못 찾았어요`); return; }
+        const setV = (n, val) => { if (val) sh.querySelector(`[name=${n}]`).value = val; };
+        const setT = (n, val) => { if (!val) return; const hid = sh.querySelector(`[name=${n}]`); hid.value = val; const tb = sh.querySelector(`[data-timefield=${n}]`); tb.textContent = val; tb.classList.remove('empty'); };
+        sh.querySelector('[name=flightNo]').value = no;
+        setV('from', m.dep.iata); setV('to', m.arr.iata);
+        if (m.airline && !v('airline')) setV('airline', m.airline);
+        const d0 = lt(m.dep.sched), a0 = lt(m.arr.sched);
+        if (d0) { setV('depDate', d0.d); setT('depTime', d0.t); }
+        if (a0) { setV('arrDate', a0.d); setT('arrTime', a0.t); }
+        if (d0 && a0) gapH = (new Date(`${a0.d}T${a0.t}`) - new Date(`${d0.d}T${d0.t}`)) / 36e5; // 현지 시각끼리 간격
+        if (m.dep.terminal) setV('terminal', `T${String(m.dep.terminal).replace(/^T/i, '')}`);
+        toast(`✈️ ${m.dep.iata} ${d0?.t || ''} → ${m.arr.iata} ${a0?.t || ''} 불러왔어요`);
+      } catch (err) { toast(flightErr(err)); } finally { b.disabled = false; b.textContent = '불러오기'; }
+    });
     sh.querySelector('[name=depTime]').addEventListener('change', followDep);
     const onArr = () => { const a = getDT('dep'), b = getDT('arr'); if (a && b && new Date(b) >= new Date(a)) gapH = (new Date(b) - new Date(a)) / 36e5; };
     sh.querySelector('[name=arrDate]').addEventListener('change', onArr);
@@ -1834,6 +1906,7 @@ document.addEventListener('click', (ev) => {
     case 'account': accountSheet(); break;
     case 'newTrip': tripForm(null); break;
     case 'guide': guideSheet(); break;
+    case 'checkFlight': checkFlight(t, id, el); break;
     case 'taxi': { ev.stopPropagation(); const sg = stopMap.get(id); if (sg) taxiSheet(sg.from, sg.to); break; }
     case 'hideInstall': lsSet('tn_install_hide', '1'); render(); break;
     case 'editTrip': tripForm(t); break;

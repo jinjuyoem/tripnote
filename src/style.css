@@ -439,3 +439,23 @@ input[type=date].inp:not(:valid),input[type=date].inp[value=""]{color:var(--ink2
 .taxiapp.kakao .ta-ico{background:#FFE14D;color:#1F1A00}
 .taxiapp.uber .ta-ico{background:#000;color:#fff}
 .installcard .btn{white-space:nowrap;flex:none}
+/* 편명 불러오기 */
+.fnrow{display:flex;gap:6px;align-items:center}
+.fnrow .inp{flex:1;min-width:0}
+.fnrow .btn{flex:none;white-space:nowrap;padding:0 10px;height:44px}
+/* 항공 상태 */
+.live{margin-top:10px;border-radius:14px;padding:10px 12px;background:#EEF6EF;border:1px solid #CFE6D3}
+.live.warn{background:#FFF3E2;border-color:#F6D5A6}
+.live.bad{background:#FDE8E8;border-color:#F3C1C1}
+.live.go{background:#EAF1FE;border-color:#C9DAF7}
+.live.gray{background:#F3F1EC;border-color:var(--line)}
+.live-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px}
+.live-h span,.live>span{font-size:11px;color:var(--ink2)}
+.live.gray{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.live-g{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.live-g>div{background:rgba(255,255,255,.7);border-radius:10px;padding:7px 9px;display:flex;flex-direction:column;gap:1px}
+.live-g i{font-style:normal;font-size:11px;color:var(--ink2)}
+.live-g b{font-family:'IBM Plex Mono',monospace;font-size:17px}
+.live-g s{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink2)}
+.live-g small{font-size:11px;color:var(--ink2)}
+.live-btn{font-weight:700}

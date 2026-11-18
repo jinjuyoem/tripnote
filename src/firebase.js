@@ -51,6 +51,7 @@ export async function login() {
   }
 }
 export const logout = () => signOut(auth);
+export const idToken = () => auth.currentUser?.getIdToken() || Promise.resolve(null);
 export const watchAuth = (cb) => { getRedirectResult(auth).catch(() => {}); return onAuthStateChanged(auth, cb); };
 
 /** 탈퇴 전 본인 확인(최근 로그인 필요). 팝업이 막히면 리디렉트 → 돌아와서 이어서 진행 */
