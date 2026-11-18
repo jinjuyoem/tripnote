@@ -226,13 +226,12 @@ function guideSheet() {
   const iosSteps = `<ol class="gsteps"><li><b>Safari</b>로 열기 <span>(크롬·카톡 안에서는 안 돼요)</span></li><li>아래 가운데 <b>공유 버튼 <span class="gk">□↑</span></b> 누르기</li><li>아래로 내려서 <b>'홈 화면에 추가'</b> → <b>추가</b></li></ol>`;
   const andSteps = `<ol class="gsteps"><li><b>크롬</b>으로 열기</li><li>오른쪽 위 <b class="gk">⋮</b> 누르기</li><li><b>'앱 설치'</b> 또는 <b>'홈 화면에 추가'</b> 누르기</li></ol>`;
   openSheet(`<h2>📖 슝 사용 방법</h2>
-    <div class="gsec"><h3>📲 앱처럼 설치하기</h3>
-      ${isStandalone() ? '<p class="gok">✅ 지금 앱으로 쓰고 있어요!</p>' : ''}
+    ${isStandalone() ? '' : `    <div class="gsec"><h3>📲 앱처럼 설치하기</h3>
       ${inApp ? '<p class="gwarn">카톡·인스타 안에서 열었어요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 먼저 눌러 주세요.</p>' : ''}
       ${ios ? `<div class="gdev on">🍎 아이폰</div>${iosSteps}<details><summary>안드로이드는?</summary>${andSteps}</details>`
         : android ? `<div class="gdev on">🤖 안드로이드</div>${andSteps}<details><summary>아이폰은?</summary>${iosSteps}</details>`
         : `<div class="gdev">🍎 아이폰</div>${iosSteps}<div class="gdev">🤖 안드로이드</div>${andSteps}`}
-      <p class="small muted">홈 화면 아이콘으로 처음 열면 구글 로그인을 한 번 더 해 주세요. 업데이트는 앱을 껐다 켜면 자동으로 돼요.</p></div>
+      <p class="small muted">홈 화면 아이콘으로 처음 열면 구글 로그인을 한 번 더 해 주세요. 업데이트는 앱을 껐다 켜면 자동으로 돼요.</p></div>`}
     <div class="gsec"><h3>✈️ 이렇게 써요</h3><ul class="gtips">
       <li><span>👥</span><div><b>동행 초대</b>여행 설정 → 초대 링크를 보내면 같이 보고 수정해요. 앱 안 쓰는 친구는 이름만 추가해도 돼요.</div></li>
       <li><span>🗓</span><div><b>일정</b>+ 일정 추가로 장소를 검색하면 지도에 핀이 찍히고, 장소 사이 이동 시간이 자동으로 나와요.</div></li>
@@ -241,6 +240,9 @@ function guideSheet() {
       <li><span>🛫</span><div><b>항공권</b>탑승자와 체크인 QR 사진을 넣어 두면 공항에서 크게 볼 수 있어요.</div></li>
       <li><span>💸</span><div><b>가계부·정산</b>일정에 쓴 돈을 적으면 가계부에 들어가고, 정산 탭에서 누가 누구한테 얼마 보낼지 알려줘요.</div></li>
       <li><span>⭐</span><div><b>별점</b>다녀온 일정에서 '완료'를 누르고 별을 끌어서 매겨요.</div></li>
+      <li><span>🚕</span><div><b>이동·택시</b>장소 사이 '🚶 도보' 버튼을 누르면 이동 수단을 바꿀 수 있어요. 차를 고르면 택시 앱으로 바로 넘어가요.</div></li>
+      <li><span>✈️</span><div><b>편명 불러오기·상태 체크</b>항공권에 편명만 넣고 불러오기를 누르면 시간이 채워지고, 카드의 상태 체크로 지연·게이트를 볼 수 있어요.</div></li>
+      <li><span>🎨</span><div><b>여행 카드 꾸미기</b>여행 설정에서 카드 색이나 사진을 바꿀 수 있어요.</div></li>
       <li><span>🎞</span><div><b>리캡</b>여행 설정 → 리캡에서 어워드를 보고, 후기와 서로에게 한마디를 남겨요.</div></li>
     </ul></div>
     <button class="btn dark block" data-x="ok">알겠어요</button>`, (sh) => { sh.querySelector('[data-x=ok]').onclick = closeSheet; });
@@ -1907,7 +1909,7 @@ function accountSheet() {
     </div>
     <label class="f"><span>이름 (동행인에게 보이는 이름)</span><input class="inp" name="pname" value="${esc(me())}"></label>
     <p class="small muted" style="margin:-4px 0 14px">${esc(S.user.email || '')} 로 로그인 중</p>
-    <button type="button" class="btn ghost block" data-x="guide" style="margin-bottom:10px">📖 사용 방법 · 앱으로 설치하기</button>
+    <button type="button" class="btn ghost block" data-x="guide" style="margin-bottom:10px">${isStandalone() ? '📖 사용 방법' : '📖 사용 방법 · 앱으로 설치하기'}</button>
     <div class="rowbtns"><button class="btn ghost" data-x="out">로그아웃</button><button class="btn dark" data-x="save">저장</button></div>
     <div class="danger-zone"><b>계정 탈퇴</b><p class="small muted">내 로그인 정보와 프로필이 삭제돼요. 나만 있는 여행은 통째로 지워지고, 동행인과 함께 쓰는 여행에서는 나만 빠져요(동행인 데이터는 그대로 남아요).</p>
       <button class="btn danger block" data-x="delete">탈퇴하기</button></div>`, (sh) => {

@@ -895,3 +895,12 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 /* Day 칩 날씨는 담백하게 */
 .dwx[class*=wx-]{background:transparent!important;color:var(--ink2)!important;padding:0;font-weight:500}
 .day.on .dwx[class*=wx-]{color:rgba(255,255,255,.8)!important}
+/* 날씨 카드 작게 */
+.wxcard{padding:13px 16px 12px;border-radius:18px;margin-bottom:12px;gap:2px 10px}
+.wxc-place{font-size:11px}
+.wxc-temp{font-size:38px;margin:2px 0 1px}
+.wxc-cond{font-size:12px}
+.wxc-hl{font-size:11px}
+.wxc-e{font-size:30px}
+.wxc-sub{font-size:11px}
+.wxc-note{font-size:10px;margin-top:4px;padding-top:6px}
