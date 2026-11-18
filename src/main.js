@@ -4,7 +4,7 @@ import {
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
   getDoc, arrayUnion, writeBatch, getDocs, deleteField,
 } from './firebase.js';
-import { createMap, mountPlaceSearch, mapsEnabled, computeRoute } from './maps.js';
+import { createMap, mountPlaceSearch, mapsEnabled, computeRoute, geocodeAirport } from './maps.js';
 import { tripWeather, geocodeCity } from './weather.js';
 import { openTimeWheel, timeField, wireTimeFields } from './timewheel.js';
 import {
@@ -129,7 +129,9 @@ function openTrip(id) {
   S.tripId = id; S.day = null; S.mapAll = false; S.ordering = false; S.wishCat = 'all';
   if (id) {
     const sub = (name) => onSnapshot(collection(db, 'trips', id, name), (s) => {
-      S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() })); render();
+      S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (name === 'items') { const tt = trip(); if (tt) normalizePositions(tt); }
+      render();
     }, (e) => console.error(name, e));
     S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'), sub('places'));
     const t = trip(); if (t) loadProfiles(t.members || []);
@@ -215,50 +217,65 @@ function viewTrip(t) {
     ${body}</div>`;
   const fab = { plan: ['newItem', '+ 일정 추가'], wish: ['newWish', '+ 찜하기'], flight: ['newFlight', '+ 항공권 추가'], money: ['newExp', '+ 지출 추가'] }[S.tab];
   $('fabhost').innerHTML = fab && !(S.tab === 'plan' && S.ordering) ? `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>` : '';
-  if (S.tab === 'plan') { drawPlanMap(t, days); fillSegments(t); loadWeather(t, days); }
+  if (S.tab === 'plan') { drawPlanMap(t, days); ensureAirportGeo(t); fillSegments(t); loadWeather(t, days); }
   else if (S.tab === 'wish') drawWishMap(t);
   else showMap(false);
   if (S.tab === 'flight') loadQrThumbs(t);
 }
 
 /* ---------- plan ---------- */
-// 정렬: 시간 있는 일정은 시간 순. 시간 없는 일정은 'after'(어느 시간 뒤에 둘지) + order로 자유 배치
+// 정렬: 사용자가 정한 순서(pos)가 우선. 시간은 새 일정을 처음 넣을 자리를 정할 때만 사용
 const ordOf = (i) => (i.order ?? i.createdAt ?? 0);
+// 예전 데이터(pos 없음)용 정렬
 const sortKey = (i) => (i.time ? [i.time, 0, ordOf(i)] : [i.after ?? '99:99', 1, ordOf(i)]);
-function cmpItems(a, b) {
-  const x = sortKey(a), y = sortKey(b);
-  return x[0].localeCompare(y[0]) || x[1] - y[1] || x[2] - y[2];
+function legacyCmp(a, b) { const x = sortKey(a), y = sortKey(b); return x[0].localeCompare(y[0]) || x[1] - y[1] || x[2] - y[2]; }
+function dayItems(d) {
+  const list = S.items.filter((i) => i.date === d);
+  return list.every((i) => typeof i.pos === 'number') ? list.sort((a, b) => a.pos - b.pos) : list.sort(legacyCmp);
 }
-function dayItems(d) { return S.items.filter((i) => i.date === d).sort(cmpItems); }
+/** 예전 일정에 순서값(pos) 한 번 채워주기 */
+let normTimer = null;
+function normalizePositions(t) {
+  clearTimeout(normTimer);
+  normTimer = setTimeout(() => {
+    const days = [...new Set(S.items.map((i) => i.date))];
+    for (const d of days) {
+      const list = S.items.filter((i) => i.date === d);
+      if (list.every((i) => typeof i.pos === 'number')) continue;
+      const sorted = [...list].sort((a, b) => (typeof a.pos === 'number' && typeof b.pos === 'number' ? a.pos - b.pos : legacyCmp(a, b)));
+      sorted.forEach((i, k) => { i.pos = (k + 1) * 1000; updateDoc(doc(db, 'trips', t.id, 'items', i.id), { pos: i.pos }).catch(() => {}); });
+    }
+  }, 300);
+}
+/** 새 일정이 들어갈 자리: 시간이 있으면 그 시간보다 늦은 첫 일정 앞, 없으면 맨 뒤 */
+function insertPos(d, time, excludeId) {
+  const list = dayItems(d).filter((i) => i.id !== excludeId);
+  const posOf = (i, k) => (typeof i.pos === 'number' ? i.pos : (k + 1) * 1000);
+  if (!list.length) return 1000;
+  let k = list.length;
+  if (time) { const j = list.findIndex((i) => i.time && i.time > time); if (j >= 0) k = j; }
+  const prev = k > 0 ? posOf(list[k - 1], k - 1) : null, next = k < list.length ? posOf(list[k], k) : null;
+  if (prev == null) return next - 1000;
+  if (next == null) return prev + 1000;
+  return (prev + next) / 2;
+}
 
-/** 드래그로 옮긴 결과(새 순서의 id 목록)를 저장. 시간 있는 일정이 시간 순서를 거스르면 시간을 지움 */
+/** 드래그로 옮긴 결과(새 순서의 id 목록) 저장 — 순서가 시간보다 우선 */
 async function placeItem(t, id, newIds) {
   const all = dayItems(S.day); const m = all.find((i) => i.id === id); if (!m) return;
   const order = newIds.map((x) => all.find((i) => i.id === x)).filter(Boolean);
+  // 순서값이 없는 예전 일정이 섞여 있으면 화면 순서대로 먼저 채움
+  if (!order.every((i) => typeof i.pos === 'number')) {
+    order.forEach((i, k) => { i.pos = (k + 1) * 1000; });
+    render();
+    return write(async () => { for (const i of order) await updateDoc(doc(db, 'trips', t.id, 'items', i.id), { pos: i.pos }); });
+  }
   const k = order.findIndex((i) => i.id === id);
   const P = order[k - 1], N = order[k + 1];
-  const ref = (i) => doc(db, 'trips', t.id, 'items', i.id);
-  const le = (a, b) => a[0].localeCompare(b[0]) || a[1] - b[1];
-  if (m.time) {
-    const mk = [m.time, 0];
-    const ok = (!P || le(sortKey(P), mk) <= 0) && (!N || le(mk, sortKey(N)) <= 0);
-    if (ok) {
-      // 같은 시간끼리는 놓은 자리대로
-      const lo = P && P.time === m.time ? ordOf(P) : null, hi = N && N.time === m.time ? ordOf(N) : null;
-      if (lo == null && hi == null) { render(); return; }
-      const o = lo != null && hi != null ? (lo + hi) / 2 : lo != null ? lo + 1 : hi - 1;
-      m.order = o; render(); return write(() => updateDoc(ref(m), { order: o }));
-    }
-  }
-  let after, o;
-  const grp = (i) => i.after ?? '99:99';
-  if (!P) { after = ''; o = N && !N.time && grp(N) === '' ? ordOf(N) - 1 : Date.now(); }
-  else if (P.time) { after = P.time; o = N && !N.time && grp(N) === after ? ordOf(N) - 1 : Date.now(); }
-  else { after = grp(P); o = N && !N.time && grp(N) === after ? (ordOf(P) + ordOf(N)) / 2 : ordOf(P) + 1; }
-  const cleared = m.time;
-  Object.assign(m, { after, order: o, time: '' }); render();
-  if (cleared) toast(`'${m.title}' 시간(${cleared})을 지우고 옮겼어요`);
-  write(() => updateDoc(ref(m), { after, order: o, ...(cleared ? { time: '' } : {}) }));
+  const pos = P && N ? (P.pos + N.pos) / 2 : P ? P.pos + 1000 : N ? N.pos - 1000 : 1000;
+  if (pos === m.pos) return;
+  m.pos = pos; render();
+  write(() => updateDoc(doc(db, 'trips', t.id, 'items', m.id), { pos }));
 }
 
 /* 드래그: 손잡이(≡)를 잡고 위아래로 */
@@ -322,23 +339,65 @@ function routeUrl(t, items) {
   return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}${w.length ? '&waypoints=' + encodeURIComponent(w.join('|')) : ''}&travelmode=transit`;
 }
 
+/** 그날 화면에 나오는 줄(일정 + 항공편) */
+function planRows(d) {
+  const rows = dayItems(d).map((i) => ({ kind: 'item', time: i.time, i }));
+  // 항공편 줄은 '그 시간 이하인 마지막 시간 있는 일정' 바로 뒤에 (없으면 맨 위)
+  [...dayFlights(d)].sort((a, b) => (a.time || '').localeCompare(b.time || '')).forEach((f) => {
+    let at = 0;
+    rows.forEach((r, k) => { if (r.time && f.time && r.time <= f.time) at = k + 1; });
+    rows.splice(at, 0, { kind: 'flight', time: f.time, f });
+  });
+  return rows;
+}
+/** 이동 구간 계산용 지점: 위치 있는 일정 + 공항(도착/출발) */
+function rowStop(r) {
+  if (r.kind === 'item') {
+    const i = r.i; if (!ll(i)) return null;
+    return { id: i.id, lat: i.lat, lng: i.lng, time: i.time, title: i.title, move: i.move, moveMode: i.moveMode, _col: 'items', _doc: i.id, _mk: 'move', _mmk: 'moveMode' };
+  }
+  const f = r.f; const dep = f._kind === 'dep'; const g = dep ? f.depGeo : f.arrGeo;
+  if (!g) return null;
+  return {
+    id: `${f.id}~${f._kind}`, lat: g.lat, lng: g.lng, time: r.time, title: `${dep ? f.from : f.to} 공항`, air: f._kind,
+    move: dep ? f.moveDep : f.moveArr, moveMode: dep ? f.moveModeDep : f.moveModeArr,
+    _col: 'flights', _doc: f.id, _mk: dep ? 'moveDep' : 'moveArr', _mmk: dep ? 'moveModeDep' : 'moveModeArr',
+  };
+}
+/** 구간 목록 [from, to] — 비행 중인 구간(출발 공항 → …, … → 도착 공항)은 제외 */
+function daySegments(d) {
+  const st = planRows(d).map(rowStop).filter(Boolean);
+  const out = [];
+  for (let k = 1; k < st.length; k++) {
+    const a = st[k - 1], b = st[k];
+    if (a.air === 'dep' || b.air === 'arr') continue;
+    out.push([a, b]);
+  }
+  return out;
+}
+/** 항공편 공항 좌표가 없으면 찾아서 저장 (한 번만) */
+const airTried = new Set();
+function ensureAirportGeo(t) {
+  if (!mapsEnabled) return;
+  for (const f of S.flights) {
+    for (const [code, field] of [[f.from, 'depGeo'], [f.to, 'arrGeo']]) {
+      if (!code || (f[field] && f[field].code === code)) continue;
+      const k = `${f.id}|${field}|${code}`; if (airTried.has(k)) continue; airTried.add(k);
+      geocodeAirport(code).then((g) => { if (g) { f[field] = g; updateDoc(doc(db, 'trips', t.id, 'flights', f.id), { [field]: g }).catch(() => {}); render(); } }).catch(() => {});
+    }
+  }
+}
+const stopMap = new Map(); // 화면에 있는 구간 도착점 id → 지점 정보 (수단 변경 저장용)
+
 function viewPlan(t, days) {
   const items = dayItems(S.day);
-  const fls = dayFlights(S.day);
-  const rows = [
-    ...fls.map((f) => ({ kind: 'flight', time: f.time, f })),
-    ...items.map((i) => ({ kind: 'item', time: i.time, i })),
-  ].sort((a, b) => {
-    // 항공편은 시간 기준, 일정은 수동 순서(시간 우선) 그대로
-    const ka = a.kind === 'flight' ? [a.time || '99:99', -1, 0] : sortKey(a.i);
-    const kb = b.kind === 'flight' ? [b.time || '99:99', -1, 0] : sortKey(b.i);
-    return ka[0].localeCompare(kb[0]) || ka[1] - kb[1] || ka[2] - kb[2];
-  });
+  const rows = planRows(S.day);
   let n = 0;
   const pinNo = new Map(); items.forEach((i) => { if (ll(i)) pinNo.set(i.id, ++n); });
-  // 위치 있는 장소끼리 바로 앞 장소 → 이 장소 구간
-  const prevOf = new Map(); let last = null;
-  items.forEach((i) => { if (ll(i)) { if (last) prevOf.set(i.id, last); last = i; } });
+  const segBefore = new Map(); stopMap.clear();
+  daySegments(S.day).forEach(([a, b]) => { segBefore.set(b.id, a); stopMap.set(b.id, b); });
+  const rowId = (r) => (r.kind === 'item' ? r.i.id : `${r.f.id}~${r.f._kind}`);
+  const segFor = (r) => { const id = rowId(r); return !S.ordering && segBefore.has(id) ? segRow(t, segBefore.get(id), stopMap.get(id)) : ''; };
   const W = S.weatherFor === t.id ? S.weather : {};
   const wx = W[S.day];
   return `<div class="days">${days.map((d, idx) => {
@@ -349,20 +408,18 @@ function viewPlan(t, days) {
       <span>${wx.kind === 'forecast' ? (wx.pop != null ? `강수확률 ${wx.pop}%` : '예보') : `작년 이맘때 날씨 (예보는 10일 전부터)${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div></div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
   <div class="planbar">${S.ordering ? '' : '<button class="ordbtn" data-act="newMemo">📝 메모 추가</button>'}${items.length > 1 ? `<button class="ordbtn ${S.ordering ? 'on' : ''}" data-act="ordering">${S.ordering ? '✓ 완료' : '↕ 순서 바꾸기'}</button>` : ''}</div>
-  ${rows.length ? `<div class="timeline">${rows.map((r) => r.kind === 'flight' ? flightRow(r.f)
-    : (!S.ordering && prevOf.has(r.i.id) ? segRow(t, prevOf.get(r.i.id), r.i) : '') + itemRow(t, r.i, pinNo.get(r.i.id), items)).join('')}</div>`
+  ${rows.length ? `<div class="timeline">${rows.map((r) => segFor(r) + (r.kind === 'flight' ? flightRow(r.f) : itemRow(t, r.i, pinNo.get(r.i.id), items))).join('')}</div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
 }
 
 /* ---------- Day 요약 ---------- */
 function dayStats(t, d) {
   const items = dayItems(d).filter((i) => i.kind !== 'memo');
-  const pts = items.filter(ll);
   let walkS = 0, walkM = 0, pending = false;
-  for (let k = 1; k < pts.length; k++) {
-    const r = segResult(pts[k - 1], pts[k], segMode(t, pts[k]));
+  for (const [a, b] of daySegments(d)) {
+    const r = segResult(a, b, segMode(null, b));
     if (!r || r === 'loading') { pending = true; continue; }
-    const used = r.used || segMode(t, pts[k]);
+    const used = r.used || segMode(null, b);
     if (used === 'walk' && r.secs) { walkS += r.secs; walkM += r.meters || 0; }
   }
   const spent = S.expenses.filter((e) => e.date === d).reduce((s, e) => s + toKRW(t, e), 0);
@@ -405,12 +462,11 @@ async function openRecap(t) {
   if (mapsEnabled) {
     const jobs = [];
     for (const d of days) {
-      const pts = dayItems(d).filter(ll);
-      for (let k = 1; k < pts.length; k++) {
-        const a = pts[k - 1], b = pts[k], mode = segMode(t, b);
+      for (const [a, b] of daySegments(d)) {
+        const mode = segMode(t, b);
         if (segResult(a, b, mode)) continue;
         const key = segKey(a, b, mode);
-        jobs.push(routeFor(a, b, mode).then((res) => { segCache.set(key, { ...res, key }); updateDoc(doc(db, 'trips', t.id, 'items', b.id), { move: { ...res, key } }).catch(() => {}); }).catch(() => {}));
+        jobs.push(routeFor(a, b, mode).then((res) => { segCache.set(key, { ...res, key }); saveStop(t, b, { [b._mk]: { ...res, key } }); }).catch(() => {}));
         if (jobs.length >= 40) break;
       }
     }
@@ -485,7 +541,7 @@ async function loadWeather(t, days) {
 /* ---------- 이동 구간 (거리·시간) ---------- */
 // 수단은 알아서: 걸어서 30분 미만 또는 대중교통과 10분 이내 차이면 도보, 아니면 대중교통. 구간마다 직접 바꿀 수도 있음
 const WALK_LIMIT = 30 * 60;
-const segMode = (t, i) => i.moveMode || 'auto';
+const segMode = (_t, i) => i.moveMode || 'auto';
 const segKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|');
 const segCache = new Map(); // key -> {meters,secs,used} | {none} | 'loading' | {err}
 const dirUrl = (from, to, m) => `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[m][3]}`;
@@ -548,9 +604,8 @@ async function routeFor(from, to, mode) {
 }
 async function fillSegments(t) {
   if (!mapsEnabled) return;
-  const items = dayItems(S.day).filter(ll);
-  for (let k = 1; k < items.length; k++) {
-    const from = items[k - 1], to = items[k], mode = segMode(t, to);
+  for (const [from, to] of daySegments(S.day)) {
+    const mode = segMode(t, to);
     if (segResult(from, to, mode)) continue;
     const key = segKey(from, to, mode); segCache.set(key, 'loading');
     const paint = () => {
@@ -564,11 +619,13 @@ async function fillSegments(t) {
     };
     routeFor(from, to, mode).then((res) => {
       segCache.set(key, { ...res, key });
-      updateDoc(doc(db, 'trips', t.id, 'items', to.id), { move: { ...res, key } }).catch(() => {});
+      saveStop(t, to, { [to._mk]: { ...res, key } });
       paint();
     }).catch((e) => { console.error(e); segCache.set(key, { err: true }); paint(); });
   }
 }
+const saveStop = (t, st, data) => updateDoc(doc(db, 'trips', t.id, st._col, st._doc), data).catch(() => {});
+
 function flightRow(f) {
   const dep = f._kind === 'dep';
   const title = dep ? `🛫 ${esc(f.from || '?')} 출발 → ${esc(f.to || '?')}` : `🛬 ${esc(f.to || '?')} 도착 (${esc(f.from || '?')}에서)`;
@@ -594,7 +651,7 @@ function itemRow(t, i, no, list) {
     }
     return `<div class="item ordering" data-drag="${esc(i.id)}" style="--cat:${c[1]}"><div class="irow">
       <div class="itime">${esc(i.time || '—')}</div>
-      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div>${i.time ? '<div class="iaddr">다른 시간 일정 너머로 옮기면 시간이 지워져요</div>' : '<div class="iaddr">자유롭게 이동</div>'}</div>
+      <div style="flex:1;min-width:0"><div class="ititle">${esc(i.title)}</div><div class="iaddr">≡ 잡고 끌어서 이동</div></div>
       <div class="draghandle" aria-label="끌어서 순서 바꾸기">≡</div>
     </div></div>`;
   }
@@ -741,7 +798,7 @@ function toPlanSheet(t, p) {
         await setDoc(doc(db, 'trips', t.id, 'items', itemId), {
           title: p.name, date, time, memo: p.memo || '', link: p.link || '', cat: p.cat === '숙소' ? '숙소' : (ICATS[p.cat] ? p.cat : '기타'),
           lat: p.lat ?? null, lng: p.lng ?? null, address: p.address || '', placeId: p.placeId || null,
-          done: false, createdAt: Date.now(), by: S.user.uid, fromWish: p.id,
+          done: false, createdAt: Date.now(), by: S.user.uid, fromWish: p.id, pos: insertPos(date, time),
         });
         await updateDoc(doc(db, 'trips', t.id, 'places', p.id), { addedTo: { itemId, date } });
       });
@@ -1046,6 +1103,7 @@ function itemForm(t, item) {
           else { expenseId = uid(); await setDoc(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
         } else if (expenseId) { await deleteDoc(doc(db, 'trips', t.id, 'expenses', expenseId)); expenseId = null; }
         data.expenseId = expenseId;
+        if (isNew || data.date !== item.date) data.pos = insertPos(data.date, data.time, itemId);
         if (isNew) await setDoc(doc(db, 'trips', t.id, 'items', itemId), { ...data, done: false, createdAt: Date.now(), by: S.user.uid });
         else await updateDoc(doc(db, 'trips', t.id, 'items', itemId), data);
       });
@@ -1061,13 +1119,14 @@ function memoForm(t, m) {
   openSheet(`<h2>${isNew ? '메모 추가' : '메모 수정'}</h2>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" rows="5" placeholder="예: 숙소 체크인 15시, 짐 맡기기 / 환전 잊지 말기">${esc(m.memo)}</textarea></label>
     <label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === m.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
-    <p class="small muted" style="margin:-4px 0 12px">맨 아래에 붙어요. '순서 바꾸기'로 원하는 위치로 옮길 수 있어요.</p>
+    <p class="small muted" style="margin:-4px 0 12px">맨 아래에 붙어요. '순서 바꾸기'로 끌어서 원하는 위치로 옮길 수 있어요.</p>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh);
     setTimeout(() => sh.querySelector('[name=memo]').focus(), 50);
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('memo')) return toast('메모를 적어 주세요');
       const data = { kind: 'memo', memo: v('memo'), date: v('date'), title: '', time: '' };
+      if (isNew || data.date !== m.date) data.pos = insertPos(data.date, '', m.id);
       closeSheet(); S.day = data.date;
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'items', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
       else await write(() => updateDoc(doc(db, 'trips', t.id, 'items', m.id), data));
@@ -1377,8 +1436,10 @@ document.addEventListener('change', (ev) => {
     const id = sel.dataset.id;
     // 알아서 고른 수단과 같은 걸 고르면 계속 자동, 다른 걸 고르면 그 구간만 고정
     const mm = sel.value === sel.dataset.auto ? null : sel.value;
-    const it = S.items.find((x) => x.id === id); if (it) it.moveMode = mm; // 즉시 반영
-    write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { moveMode: mm }));
+    const st = stopMap.get(id); if (!st) return;
+    const src = st._col === 'items' ? S.items.find((x) => x.id === st._doc) : S.flights.find((x) => x.id === st._doc);
+    if (src) src[st._mmk] = mm; // 즉시 반영
+    write(() => updateDoc(doc(db, 'trips', t.id, st._col, st._doc), { [st._mmk]: mm }));
     render();
   }
 });

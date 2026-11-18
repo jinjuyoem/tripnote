@@ -94,6 +94,16 @@ export async function createMap(el) {
   return { map, draw, focus, centerOn, clear };
 }
 
+/** 공항 코드(KIX 등) → 좌표 */
+export async function geocodeAirport(code) {
+  if (!mapsEnabled || !code) return null;
+  await bootstrap();
+  const { Geocoder } = await google.maps.importLibrary('geocoding');
+  const { results } = await new Geocoder().geocode({ address: `${code} airport` });
+  const r = results?.[0]; if (!r) return null;
+  return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng(), code };
+}
+
 /** 두 지점 사이 거리·시간 (Routes API). mode: WALK | TRANSIT | DRIVE | BICYCLE */
 export async function computeRoute(from, to, mode, timeHHMM) {
   if (!mapsEnabled) return null;
