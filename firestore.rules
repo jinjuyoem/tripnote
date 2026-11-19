@@ -54,6 +54,10 @@ service cloud.firestore {
       allow update: if allowed() && (
         // 이미 참여 중인 사람: 수정 가능 (방장 변경은 방장만, 남은 참여자에게만)
         (request.auth.uid in resource.data.members
+          // 다른 사람 내보내기는 방장만 (본인 나가기는 누구나)
+          && (request.resource.data.members.hasAll(resource.data.members)
+              || resource.data.ownerId == request.auth.uid
+              || request.resource.data.members.toSet() == resource.data.members.toSet().difference([request.auth.uid].toSet()))
           && (request.resource.data.ownerId == resource.data.ownerId
               || (resource.data.ownerId == request.auth.uid
                   && request.resource.data.ownerId in request.resource.data.members)))

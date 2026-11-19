@@ -1695,7 +1695,8 @@ function tripForm(t) {
       <label class="f"><span id="rateLbl">기본 환율</span><input class="inp" type="number" step="any" inputmode="decimal" name="rate" value="${esc(String(Math.round((Number(t.rate) || 1) * rateUnit(t.currency) * 10000) / 10000))}"><div class="hint" id="rateHint"></div></label></div>
     ${isNew ? '' : `<div class="card soft"><h3>동행인 초대</h3>
       <p class="small muted">링크를 받은 사람이 구글 로그인하면 이 여행을 같이 보고 수정할 수 있어요. 정산·'누구랑?'·탑승자는 여기 참여한 사람 기준이에요.</p>
-      <div class="joined">${(t.members || []).map((u) => `<span class="jm">${avatar(u, 24, t.memberNames?.[u])}${esc(S.profiles.get(u)?.name || t.memberNames?.[u] || '?')}${u === t.ownerId ? ' <small>(방장)</small>' : ''}</span>`).join('') || '-'}</div>
+      <div class="joined" id="mList">${(t.members || []).map((u) => `<span class="jm">${avatar(u, 24, t.memberNames?.[u])}${esc(S.profiles.get(u)?.name || t.memberNames?.[u] || '?')}${u === t.ownerId ? ' <small>(방장)</small>' : isOwner ? ` <button type="button" class="gdel" data-kick="${esc(u)}" aria-label="내보내기">✕</button>` : ''}</span>`).join('') || '-'}</div>
+      ${isOwner && (t.members || []).length > 1 ? '<p class="small muted" style="margin-top:6px">✕를 누르면 이 여행에서 내보내요. 초대 링크도 새로 바뀌어요.</p>' : ''}
       <button class="btn ghost block" data-x="invite">초대 링크 만들기</button><div id="invOut"></div></div>`}
     <div class="card soft"><h3>로그인 안 하는 동행</h3>
       <p class="small muted">앱을 안 쓰는 친구도 이름만 넣으면 정산·누구랑?·탑승자에 같이 나와요.</p>
@@ -1770,6 +1771,17 @@ function tripForm(t) {
         <div class="rowbtns"><button class="btn ghost" data-x="cp">링크 복사</button>${navigator.share ? '<button class="btn pri" data-x="sh">공유하기</button>' : ''}</div>`;
       sh.querySelector('[data-x=cp]').onclick = () => copy(url, '초대 링크를 복사했어요');
       sh.querySelector('[data-x=sh]')?.addEventListener('click', () => navigator.share({ title: `${t.name} 초대`, text: `슝에서 '${t.name}' 같이 보자!`, url }).catch(() => {}));
+    });
+    // 방장: 참여자 내보내기 (예전 초대 링크는 막고 새 링크로)
+    sh.querySelector('#mList')?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-kick]'); if (!b || !isOwner) return;
+      const u = b.dataset.kick; const nm = S.profiles.get(u)?.name || t.memberNames?.[u] || '이 사람';
+      askConfirm(`${nm}님을 이 여행에서 내보낼까요? 이제 이 여행을 볼 수 없어요. 일정·지출에 적힌 이름은 그대로 남아요.`, '내보내기', () => write(async () => {
+        const cur = trip() || t;
+        if (cur.inviteCode) await deleteDoc(doc(db, 'invites', cur.inviteCode)).catch(() => {});
+        await updateDoc(doc(db, 'trips', t.id), { members: (cur.members || []).filter((x) => x !== u), [`memberNames.${u}`]: deleteField(), inviteCode: null });
+        closeSheet(); toast(`${nm}님을 내보냈어요`);
+      }));
     });
     sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${t.name}' 여행을 삭제할까요? 일정·항공권·가계부가 모두 지워지고 되돌릴 수 없어요.`, '삭제', () => deleteTrip(t)));
   });
