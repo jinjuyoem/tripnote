@@ -27,6 +27,9 @@ const S = {
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
 let pendingJoin = params.get('join');
+// 앱 초대 링크(?hi=1): 로그인하면 사용 요청을 자동으로 보내고, 승인 후 처음 열 때 사용 방법을 띄움
+if (params.get('hi')) { try { localStorage.setItem('tn_welcome', '1'); } catch { /* */ } }
+const isWelcome = () => { try { return localStorage.getItem('tn_welcome') === '1'; } catch { return false; } };
 
 const $ = (id) => document.getElementById(id);
 const trip = () => S.trips.find((t) => t.id === S.tripId);
@@ -122,7 +125,10 @@ watchAuth(async (u) => {
         if (!snap.exists() && snap.metadata.fromCache) return; // 캐시에 없을 뿐일 수 있음 → 서버 응답 기다림
         const was = S.access;
         S.access = snap.exists() ? 'ok' : 'no';
-        if (S.access === 'ok' && was !== 'ok') startData(u);
+        if (S.access === 'ok' && was !== 'ok') {
+          startData(u);
+          if (isWelcome()) { try { localStorage.removeItem('tn_welcome'); } catch { /* */ } if (!isStandalone()) setTimeout(guideSheet, 600); }
+        }
         if (S.access === 'no' && was === 'ok') stopData();
         if (S.access === 'no') getDoc(doc(db, 'accessRequests', emailOf(u))).then((r) => { S.requested = r.exists(); renderSoon(); }).catch(() => {});
         renderSoon();
@@ -236,7 +242,8 @@ function viewLogin() {
       <h1 class="login-word" aria-label="슝">${I.word}</h1>
       <p class="muted">일정·지도·항공권·가계부를 한 곳에서.<br>동행인과 같이 보고 같이 고쳐요.</p>
       ${BETA_NOTE}
-      ${pendingJoin ? '<p class="invite-note">초대받은 여행이 있어요. 로그인하면 바로 참여돼요.</p>' : ''}
+      ${pendingJoin ? '<p class="invite-note">초대받은 여행이 있어요. 로그인하면 바로 참여돼요.</p>'
+        : isWelcome() ? '<p class="invite-note">슝에 초대받았어요. 구글로 로그인하면 사용 요청이 바로 가요.</p>' : ''}
       <button class="btn pri block" id="loginBtn">Google로 시작하기</button>
     </div>`;
   $('loginBtn').onclick = () => login().catch((e) => { console.error(e); toast('로그인하지 못했어요'); });
@@ -269,6 +276,7 @@ function viewGate() {
     } catch (e) { console.error(e); rb.disabled = false; toast('요청을 보내지 못했어요'); }
   };
   $('outBtn').onclick = () => logout();
+  if (rb && isWelcome() && !S.reqAuto) { S.reqAuto = true; rb.click(); }
 }
 
 /* 로고 10번 연속 탭 → 관리자 화면 (관리자 계정만) */
@@ -302,6 +310,8 @@ async function adminSheet() {
       <input class="inp" name="nname" placeholder="누군지 (예: 대학 동기 민지)">
       <button class="btn pri block" data-x="add">추가</button>
     </div>
+    <button class="btn ghost block" data-x="applink" style="margin-top:8px">🔗 앱 초대 링크 복사</button>
+    <p class="small muted" style="margin:6px 2px 0">링크로 들어와 로그인하면 요청이 자동으로 와요. 아래에서 승인만 하면 돼요.</p>
     <h3 class="adm-h">요청 대기 <span>${reqs.length}</span></h3>
     ${reqs.length ? reqs.map((r) => `<div class="adm-row" data-email="${esc(r.id)}">
         <div class="adm-who"><b>${esc(r.name || '(이름 없음)')}</b><span>${esc(r.id)}</span></div>
@@ -314,6 +324,7 @@ async function adminSheet() {
         <div class="adm-who"><span>${esc(a.id)}</span></div>
         <div class="adm-line"><input class="inp adm-name" placeholder="누군지 메모" value="${esc(a.name || '')}"><button class="btn danger small" data-x="del">삭제</button></div>
       </div>`).join('')}`, (sh) => {
+    sh.querySelector('[data-x=applink]').onclick = () => copy(`${location.origin}/?hi=1`, '앱 초대 링크를 복사했어요');
     sh.querySelector('[data-x=add]').onclick = async () => {
       const email = sh.querySelector('[name=nemail]').value.trim().toLowerCase();
       const name = sh.querySelector('[name=nname]').value.trim();
@@ -377,7 +388,7 @@ function guideSheet() {
   const ios = /iPhone|iPad|iPod/.test(ua) || (ua.includes('Mac') && 'ontouchend' in document);
   const android = /Android/.test(ua);
   const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER|Line\//.test(ua);
-  const iosSteps = `<ol class="gsteps"><li><b>Safari</b>로 열기 <span>(크롬·카톡 안에서는 안 돼요)</span></li><li>아래 가운데 <b>공유 버튼 <span class="gk">□↑</span></b> 누르기</li><li>아래로 내려서 <b>'홈 화면에 추가'</b> → <b>추가</b></li></ol>`;
+  const iosSteps = `<ol class="gsteps"><li><b>Safari</b>로 열기 <span>(카톡·인스타 안에서는 안 돼요)</span></li><li>아래 <b>점 3개 <span class="gk">···</span></b> 누르고 <b>공유</b> 누르기 <span>(공유 버튼 <span class="gk">□↑</span>이 바로 보이면 그걸 눌러도 돼요)</span></li><li>아래로 내려서 <b>'홈 화면에 추가'</b> → <b>추가</b></li></ol>`;
   const andSteps = `<ol class="gsteps"><li><b>크롬</b>으로 열기</li><li>오른쪽 위 <b class="gk">⋮</b> 누르기</li><li><b>'앱 설치'</b> 또는 <b>'홈 화면에 추가'</b> 누르기</li></ol>`;
   openSheet(`<h2>📖 슝 사용 방법</h2>
     ${isStandalone() ? '' : `    <div class="gsec"><h3>📲 앱처럼 설치하기</h3>
