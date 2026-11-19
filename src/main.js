@@ -184,9 +184,12 @@ function openTrip(id) {
   S.items = []; S.expenses = []; S.flights = []; S.places = []; S.checks = []; S.fresh = {};
   S.tripId = id; S.day = null; S.mapAll = false; S.ordering = false; S.viewAs = null; S.wishCat = 'all';
   if (id) {
-    const sub = (name) => onSnapshot(collection(db, 'trips', id, name), (s) => {
+    // includeMetadataChanges: 캐시 내용이 서버와 같아도 '서버 확인됨' 신호를 받으려고 (공유 링크는 서버 확인 후에만 갱신)
+    const sub = (name) => onSnapshot(collection(db, 'trips', id, name), { includeMetadataChanges: true }, (s) => {
+      const was = !!S.fresh[name];
+      if (!s.metadata.fromCache) S.fresh[name] = true;
+      if (!s.docChanges().length && was === !!S.fresh[name] && S[name].length === s.size) return; // 메타데이터만 바뀜 → 다시 안 그림
       S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (!s.metadata.fromCache) S.fresh[name] = true; // 서버에서 한 번 받은 뒤에만 공유 스냅샷 갱신
       if (name === 'items') { const tt = trip(); if (tt) normalizePositions(tt); }
       renderSoon();
     }, (e) => console.error(name, e));
