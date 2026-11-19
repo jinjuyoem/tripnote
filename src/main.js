@@ -10,7 +10,7 @@ import { openTimeWheel, timeField, wireTimeFields } from './timewheel.js';
 import {
   esc, uid, randCode, won, num, md, hm, parseD, fmtD, tripDays, dday,
   ICATS, ECATS, DAYCOLORS, CURRENCIES, toast, copy,
-  rateUnit, MOVES, fmtDur, fmtDist, compressImage,
+  rateUnit, MOVES, fmtDur, fmtDist, compressImage, inChina, amapPlaceUrl, amapDirUrl,
 } from './util.js';
 
 /* ---------------- state ---------------- */
@@ -1110,7 +1110,10 @@ const WALK_LIMIT = 30 * 60;
 const segMode = (_t, i) => i.moveMode || 'auto';
 const segKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|');
 const segCache = new Map(); // key -> {meters,secs,used} | {none} | 'loading' | {err}
-const dirUrl = (from, to, m) => `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[m][3]}`;
+const gDirUrl = (from, to, m) => `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[m][3]}`;
+const segCN = (from, to) => inChina(from) && inChina(to);
+// 중국 본토 구간은 고덕 길찾기
+const dirUrl = (from, to, m) => (segCN(from, to) ? amapDirUrl(from, to, m) : gDirUrl(from, to, m));
 function straightM(a, b) {
   const R = 6371000, r = (x) => (x * Math.PI) / 180;
   const h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2;
@@ -1129,7 +1132,7 @@ function segRow(t, from, to, cls = '', label = '') {
     <button type="button" class="segsel" data-act="segpick" data-id="${esc(sid)}" data-auto="${esc(autoUsed || '')}" data-v="${esc(shown)}" aria-label="이동 수단 바꾸기">${MOVES[shown][0]}${cls ? '' : ` <span>${MOVES[shown][1]}</span>`}<i class="ti-caret">▾</i></button>
     <span class="seginfo" data-seginfo="${esc(sid)}">${segText(from, to, mode)}</span>
     ${shown === 'drive' ? `<button type="button" class="taxibtn" data-act="taxi" data-id="${esc(sid)}">🚕 택시</button>` : ''}
-    <a class="seglink" data-seglink="${esc(sid)}" href="${esc(dirUrl(from, to, shown))}" target="_blank" rel="noopener">길찾기</a>
+    <a class="seglink" data-seglink="${esc(sid)}" href="${esc(dirUrl(from, to, shown))}" target="_blank" rel="noopener">${segCN(from, to) ? '고덕 길찾기' : '길찾기'}</a>
   </div>`;
 }
 function segResult(from, to, mode) {
@@ -1279,6 +1282,7 @@ function itemRow(t, i, no, list) {
       ${itemSpendHtml(t, i)}
       <div class="iactions"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(catLabel(i.cat || '기타'))}</span>
         ${i.cat !== '이동' ? `<a class="lnk map" href="${esc(placeUrl(t, i))}" target="_blank" rel="noopener">구글맵</a>` : ''}
+        ${i.cat !== '이동' && inChina(i) ? `<a class="lnk map" href="${esc(amapPlaceUrl(i, t.city))}" target="_blank" rel="noopener">고덕</a>` : ''}
         ${i.link ? `<a class="lnk" href="${esc(i.link)}" target="_blank" rel="noopener">링크</a>` : ''}
         <button class="lnk" data-act="toggleDone" data-id="${esc(i.id)}">${i.done ? '되돌리기' : '완료'}</button>
         <button class="lnk" data-act="editItem" data-id="${esc(i.id)}">수정</button>
@@ -1341,6 +1345,7 @@ function viewWish(t) {
         <div class="iactions">
           <button class="lnk map" data-act="toPlan" data-id="${esc(p.id)}">📅 일정에 넣기</button>
           <a class="lnk" href="${esc(placeUrl(t, { title: p.name, placeId: p.placeId }))}" target="_blank" rel="noopener">구글맵</a>
+          ${inChina(p) ? `<a class="lnk" href="${esc(amapPlaceUrl(p, t.city))}" target="_blank" rel="noopener">고덕</a>` : ''}
           ${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener">링크</a>` : ''}
           <button class="lnk" data-act="editWish" data-id="${esc(p.id)}">수정</button>
         </div></div>`;
