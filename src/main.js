@@ -292,6 +292,7 @@ document.addEventListener('click', (e) => {
 
 /** API 사용량 (관리자): /api/usage → 오늘 상한 대비 · 이번 달 무료분 대비 */
 let usageCache = null; // { at(ms), data }
+let admTab = 'users'; // 관리자 시트 탭: users | usage
 async function loadUsage(force) {
   if (!force && usageCache && Date.now() - usageCache.at < 60e3) return usageCache.data;
   const tok = await idToken();
@@ -345,7 +346,14 @@ async function adminSheet() {
     b.delete(doc(db, 'accessRequests', email));
     await b.commit();
   };
-  const draw = () => openSheet(`<h2>🔑 테스터 관리</h2>
+  const draw = () => openSheet(`<h2>🔑 관리자</h2>
+    <div class="adm-tabs">
+      <button data-x="tab" data-v="users" class="${admTab === 'users' ? 'on' : ''}">테스터${reqs.length ? ` <span>${reqs.length}</span>` : ''}</button>
+      <button data-x="tab" data-v="usage" class="${admTab === 'usage' ? 'on' : ''}">API 사용량</button>
+    </div>
+    <div data-pane="usage" ${admTab === 'usage' ? '' : 'hidden'}><div class="adm-uhead"><button class="btn ghost small" data-x="ureload">새로고침</button></div>
+    <div class="adm-usage" data-x="usage"></div></div>
+    <div data-pane="users" ${admTab === 'users' ? '' : 'hidden'}>
     <div class="adm-add">
       <input class="inp" name="nemail" type="email" inputmode="email" autocapitalize="off" placeholder="구글 이메일">
       <input class="inp" name="nname" placeholder="누군지 (예: 대학 동기 민지)">
@@ -353,8 +361,6 @@ async function adminSheet() {
     </div>
     <button class="btn ghost block" data-x="applink" style="margin-top:8px">🔗 앱 초대 링크 복사</button>
     <p class="small muted" style="margin:6px 2px 0">링크로 들어와 로그인하면 요청이 자동으로 와요. 아래에서 승인만 하면 돼요.</p>
-    <h3 class="adm-h">📊 API 사용량 <button class="btn ghost small" data-x="ureload" style="margin-left:auto">새로고침</button></h3>
-    <div class="adm-usage" data-x="usage"></div>
     <h3 class="adm-h">요청 대기 <span>${reqs.length}</span></h3>
     ${reqs.length ? reqs.map((r) => `<div class="adm-row" data-email="${esc(r.id)}">
         <div class="adm-who"><b>${esc(r.name || '(이름 없음)')}</b><span>${esc(r.id)}</span></div>
@@ -366,12 +372,20 @@ async function adminSheet() {
     ${allow.map((a) => `<div class="adm-row" data-email="${esc(a.id)}">
         <div class="adm-who"><span>${esc(a.id)}</span></div>
         <div class="adm-line"><input class="inp adm-name" placeholder="누군지 메모" value="${esc(a.name || '')}"><button class="btn danger small" data-x="del">삭제</button></div>
-      </div>`).join('')}`, (sh) => {
-    sh.querySelector('[data-x=applink]').onclick = () => copy(`${location.origin}/?hi=1`, '앱 초대 링크를 복사했어요');
+      </div>`).join('')}</div>`, (sh) => {
+    // 탭: 시트를 다시 열지 않고 칸만 바꿈 (열림 애니메이션 반복 방지)
     const ubox = sh.querySelector('[data-x=usage]');
-    if (usageCache) ubox.innerHTML = usageHtml(usageCache.data);
-    paintUsage(ubox, false);
+    let uLoaded = false;
+    const showTab = (v) => {
+      admTab = v;
+      sh.querySelectorAll('[data-x=tab]').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+      sh.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== v; });
+      if (v === 'usage' && !uLoaded) { uLoaded = true; if (usageCache) ubox.innerHTML = usageHtml(usageCache.data); paintUsage(ubox, false); }
+    };
+    sh.querySelectorAll('[data-x=tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.v); });
     sh.querySelector('[data-x=ureload]').onclick = () => paintUsage(ubox, true);
+    showTab(admTab);
+    sh.querySelector('[data-x=applink]').onclick = () => copy(`${location.origin}/?hi=1`, '앱 초대 링크를 복사했어요');
     sh.querySelector('[data-x=add]').onclick = async () => {
       const email = sh.querySelector('[name=nemail]').value.trim().toLowerCase();
       const name = sh.querySelector('[name=nname]').value.trim();

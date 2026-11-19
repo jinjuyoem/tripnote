@@ -964,3 +964,8 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 .ubar i.hot{background:#E5484D}
 .uother{margin-top:6px}
 .uother summary{cursor:pointer;padding:4px 0}
+.adm-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line,#E5E8EB);margin:4px 0 14px}
+.adm-tabs button{flex:1;padding:10px 0 9px;font-size:15px;font-weight:700;color:var(--ink3,#8B95A1);border-bottom:2px solid transparent;margin-bottom:-1px}
+.adm-tabs button.on{color:var(--ink,#191F28);border-bottom-color:var(--accent,#2E5BFF)}
+.adm-tabs span{font-size:11px;color:#fff;background:#E5484D;border-radius:99px;padding:1px 6px;margin-left:2px;vertical-align:1px}
+.adm-uhead{display:flex;justify-content:flex-end;margin-bottom:8px}
