@@ -173,33 +173,48 @@ export async function computeRoute(from, to, mode, timeHHMM) {
   return { meters: rt.distanceMeters || 0, secs: parseInt(rt.duration, 10) || 0 };
 }
 
-/** 장소 검색창을 container에 붙이고, 고르면 onPick({name,address,lat,lng,placeId}) */
+/** 장소 검색창을 container에 붙이고, 고르면 onPick({name,address,lat,lng,placeId})
+ * 구글 기본 검색 위젯은 폰에서 전체 화면으로 바뀌고 결과가 안 뜨는 일이 있어서, 입력칸·목록은 직접 그림 (데이터만 Places API) */
 export async function mountPlaceSearch(container, onPick, near) {
   if (!mapsEnabled) return null;
   await bootstrap();
-  const { PlaceAutocompleteElement } = await google.maps.importLibrary('places');
-  let el;
-  try { el = new PlaceAutocompleteElement(near ? { locationBias: near } : {}); }
-  catch (e) { console.warn('검색 기준점 무시', e); el = new PlaceAutocompleteElement({}); }
-  el.addEventListener('gmp-error', (e) => console.error('장소 검색 오류', e));
-  el.setAttribute('placeholder', '장소 검색 (예: 도톤보리)');
-  el.style.width = '100%';
-  el.style.colorScheme = 'light';
-  container.innerHTML = '';
-  container.appendChild(el);
-
-  const handle = async (place) => {
+  const { AutocompleteSuggestion, AutocompleteSessionToken } = await google.maps.importLibrary('places');
+  container.innerHTML = `<div class="psearch"><input class="inp" type="search" enterkeyhint="search" autocomplete="off" placeholder="장소 검색 (예: 도톤보리)"><div class="pslist" hidden></div></div>`;
+  const inp = container.querySelector('input'), list = container.querySelector('.pslist');
+  let token = new AutocompleteSessionToken(), seq = 0, timer = null, items = [];
+  const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const show = (html) => { list.innerHTML = html; list.hidden = !html; };
+  async function run(q) {
+    const my = ++seq;
+    if (!q.trim()) { items = []; return show(''); }
     try {
+      const req = { input: q, language: 'ko', sessionToken: token };
+      if (near) req.locationBias = near;
+      let res;
+      try { res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
+      catch (e) { if (!near) throw e; delete req.locationBias; res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
+      if (my !== seq) return;
+      items = (res.suggestions || []).map((x) => x.placePrediction).filter(Boolean);
+      show(items.length ? items.map((p, i) => `<button type="button" class="psitem" data-i="${i}"><b>${escH(p.mainText?.text || p.text?.text)}</b><span>${escH(p.secondaryText?.text || '')}</span></button>`).join('')
+        : '<div class="psmsg">검색 결과가 없어요. 영어나 현지어로도 쳐 보세요.</div>');
+    } catch (e) {
+      if (my !== seq) return;
+      console.error('장소 검색 오류', e);
+      const quota = /quota|RESOURCE_EXHAUSTED|429|OVER_QUERY_LIMIT/i.test(String(e?.message || e));
+      show(`<div class="psmsg">${quota ? '오늘 검색 한도를 다 썼어요. 내일 다시 돼요.' : '검색이 안 돼요. 잠시 후 다시 해 주세요.'}</div>`);
+    }
+  }
+  inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => run(inp.value), 250); });
+  list.addEventListener('click', async (e) => {
+    const b = e.target.closest('.psitem'); if (!b) return;
+    const pred = items[+b.dataset.i]; if (!pred) return;
+    show(''); inp.value = pred.mainText?.text || pred.text?.text || '';
+    try {
+      const place = pred.toPlace();
       await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
-      onPick({
-        name: place.displayName || '',
-        address: place.formattedAddress || '',
-        lat: place.location?.lat(), lng: place.location?.lng(),
-        placeId: place.id,
-      });
-    } catch (e) { console.error(e); }
-  };
-  el.addEventListener('gmp-select', ({ placePrediction }) => placePrediction && handle(placePrediction.toPlace()));
-  el.addEventListener('gmp-placeselect', ({ place }) => place && handle(place)); // 구버전 호환
-  return el;
+      token = new AutocompleteSessionToken();
+      onPick({ name: place.displayName || inp.value, address: place.formattedAddress || '', lat: place.location?.lat(), lng: place.location?.lng(), placeId: place.id });
+    } catch (err) { console.error(err); show('<div class="psmsg">장소 정보를 못 가져왔어요. 다시 골라 주세요.</div>'); }
+  });
+  return inp;
 }
