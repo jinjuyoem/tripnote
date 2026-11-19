@@ -1290,6 +1290,21 @@ function itemRow(t, i, no, list) {
 }
 
 let lastMapSig = '';
+// 일정이 없을 때 여행 도시로 지도 맞추기 (찾은 좌표는 trip.geo에 저장해서 다음부터 API 없이)
+// 구글 지오코딩은 한국(region KR) 쪽으로 쏠려서 '상하이' 같은 이름이 국내 장소로 잡힐 수 있음 → 도시 DB(Open-Meteo) 먼저
+async function centerTrip(ctl, t) {
+  const pre = t.geo || (await geocodeCity(t.city).catch(() => null));
+  ctl.centerOn(t.city, pre).then((g) => {
+    if (g && !t.geo && S.tripId === t.id) { t.geo = g; updateDoc(doc(db, 'trips', t.id), { geo: g }).catch(() => {}); }
+  });
+}
+// 장소 검색 기준점: 지도 가운데. 지도가 아직 여행지 근처가 아니면(기본값 서울 등) 여행 도시 좌표
+function searchNear(t) {
+  const c = mapCtl?.map?.getCenter?.();
+  const g = t?.geo;
+  if (g && g.lat != null && (!c || straightM({ lat: c.lat(), lng: c.lng() }, g) > 300000)) return { center: { lat: +g.lat, lng: +g.lng }, radius: 50000 };
+  return c ? { center: c, radius: 30000 } : undefined;
+}
 async function drawPlanMap(t, days) {
   if (!mapsEnabled) return showMap(false);
   showMap(true);
@@ -1311,7 +1326,7 @@ async function drawPlanMap(t, days) {
   if (sig !== lastMapSig) {
     lastMapSig = sig;
     const n = ctl.draw(groups);
-    if (!n) ctl.centerOn(t.city);
+    if (!n) centerTrip(ctl, t);
   }
   $('mapToggle').hidden = false; $('mapToggle').textContent = S.mapAll ? '이 날만 보기' : '전체 일정 보기';
   const r = routeUrl(t, dayItems(S.day));
@@ -1360,7 +1375,7 @@ async function drawWishMap(t) {
     color: (ICATS[c] || ICATS.기타)[1], path: false,
     points: ps.filter((p) => (p.cat || '기타') === c).map((p) => ({ lat: p.lat, lng: p.lng, label: c[0], title: p.name })),
   }));
-  lastMapSig = ''; if (!ctl.draw(groups)) ctl.centerOn(t.city);
+  lastMapSig = ''; if (!ctl.draw(groups)) centerTrip(ctl, t);
   $('mapToggle').hidden = true; $('routeLink').hidden = true;
 }
 function wishForm(t, p) {
@@ -1382,7 +1397,7 @@ function wishForm(t, p) {
     };
     showPicked();
     if (mapsEnabled) {
-      const near = mapCtl?.map?.getCenter?.() ? { center: mapCtl.map.getCenter(), radius: 30000 } : undefined;
+      const near = searchNear(t);
       mountPlaceSearch(sh.querySelector('#placeBox'), (r) => {
         picked = { lat: r.lat, lng: r.lng, address: r.address, placeId: r.placeId };
         sh.querySelector('[name=name]').value = r.name; showPicked();
@@ -1842,7 +1857,7 @@ function itemForm(t, item) {
     };
     showPicked();
     if (mapsEnabled) {
-      const near = mapCtl?.map?.getCenter?.() ? { center: mapCtl.map.getCenter(), radius: 30000 } : undefined;
+      const near = searchNear(t);
       mountPlaceSearch(sh.querySelector('#placeBox'), (p) => {
         picked = { lat: p.lat, lng: p.lng, address: p.address, placeId: p.placeId };
         sh.querySelector('[name=title]').value = p.name; showPicked();

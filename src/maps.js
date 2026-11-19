@@ -83,13 +83,26 @@ export async function createMap(el) {
     return n;
   }
   function focus(p) { map.panTo(p); if (map.getZoom() < 15) map.setZoom(15); }
-  async function centerOn(text) {
-    if (!text) return;
+  // 여행 도시로 지도 맞추기. 저장된 좌표(geo)가 있으면 API 없이 바로, 없으면 지오코딩 → 장소 검색 순으로 찾고 좌표를 돌려줌
+  async function centerOn(text, geo) {
+    if (geo && geo.lat != null) { map.setCenter({ lat: +geo.lat, lng: +geo.lng }); map.setZoom(11); return geo; }
+    if (!text) return null;
     try {
       const { Geocoder } = await google.maps.importLibrary('geocoding');
       const { results } = await new Geocoder().geocode({ address: text });
-      if (results?.[0]) map.fitBounds(results[0].geometry.viewport);
+      const r = results?.[0];
+      if (r) { map.fitBounds(r.geometry.viewport); return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() }; }
+    } catch { /* 장소 검색으로 다시 */ }
+    try {
+      const { Place } = await google.maps.importLibrary('places');
+      const { places } = await Place.searchByText({ textQuery: text, fields: ['location', 'viewport'], maxResultCount: 1 });
+      const pl = places?.[0];
+      if (pl?.location) {
+        if (pl.viewport) map.fitBounds(pl.viewport); else { map.setCenter(pl.location); map.setZoom(11); }
+        return { lat: pl.location.lat(), lng: pl.location.lng() };
+      }
     } catch { /* 무시 */ }
+    return null;
   }
   return { map, draw, focus, centerOn, clear };
 }
