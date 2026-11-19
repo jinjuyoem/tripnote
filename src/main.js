@@ -367,15 +367,22 @@ function taxiSheet(from, to) {
   const uber = 'https://m.uber.com/ul/?' + q({ action: 'setPickup', 'pickup[latitude]': f.lat, 'pickup[longitude]': f.lng, 'pickup[nickname]': f.name, 'dropoff[latitude]': d.lat, 'dropoff[longitude]': d.lng, 'dropoff[nickname]': d.name });
   const kakao = 'kakaot://taxi?' + q({ origin_lat: f.lat, origin_lng: f.lng, origin_name: f.name, dest_lat: d.lat, dest_lng: d.lng, dest_name: d.name });
   const addr = (S.items.find((i) => i.id === to.id)?.address) || d.name;
+  const cn = inChina(from) && inChina(to); // 중국 본토는 우버·카카오 T가 안 돼서 알리페이 안 디디
   openSheet(`<h2>🚕 택시 부르기</h2>
     <div class="taxiroute"><div><span>출발</span><b>${esc(f.name)}</b></div><em>→</em><div><span>도착</span><b>${esc(d.name)}</b></div></div>
     <div class="taxiapps">
+      ${cn ? `<a class="taxiapp didi" href="alipays://" data-x="didi"><span class="ta-ico">D</span><div><b>디디 (알리페이)</b><i>중국 · 알리페이 → 교통 → 디디</i></div></a>` : ''}
       <a class="taxiapp kakao" href="${esc(kakao)}" data-x="kakao"><span class="ta-ico">T</span><div><b>카카오 T</b><i>한국 · 일본 · 베트남</i></div></a>
       <a class="taxiapp uber" href="${esc(uber)}" target="_blank" rel="noopener"><span class="ta-ico">U</span><div><b>Uber</b><i>일본 · 홍콩 · 대만 · 해외 대부분</i></div></a>
     </div>
     <button type="button" class="btn ghost block" data-x="copy">📋 도착지 주소 복사</button>
+    ${cn ? '<p class="small muted" style="margin-top:10px">디디는 알리페이를 열고 <b>교통(出行) → 디디(滴滴出行)</b>로 들어가서, 복사된 도착지를 붙여넣으면 돼요. 중국어 주소로 찾으면 정확해요.</p>' : ''}
     <p class="small muted" style="margin-top:10px">앱이 깔려 있으면 바로 열려요. Uber는 출발·도착이 채워져서 열리고, 카카오 T는 버전에 따라 도착지를 한 번 더 확인해야 할 수 있어요. 그럴 땐 복사한 주소를 붙여넣으세요.</p>`, (sh) => {
     sh.querySelector('[data-x=copy]').onclick = () => copy(addr, '도착지 주소를 복사했어요');
+    sh.querySelector('[data-x=didi]')?.addEventListener('click', () => {
+      copy(addr, '도착지 주소를 복사했어요. 디디에서 붙여넣으세요');
+      setTimeout(() => { if (document.visibilityState === 'visible') toast('알리페이 앱이 안 열리면 설치가 필요해요'); }, 1800);
+    });
     sh.querySelector('[data-x=kakao]').addEventListener('click', () => {
       copy(addr, '도착지 주소도 복사해 뒀어요');
       setTimeout(() => { if (document.visibilityState === 'visible') toast('카카오 T 앱이 안 열리면 설치가 필요해요'); }, 1800);
