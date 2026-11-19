@@ -39,10 +39,10 @@ export async function geocodeCity(name) {
 const mem = new Map();
 const cacheGet = (k) => {
   if (mem.has(k)) return mem.get(k);
-  try { const v = JSON.parse(sessionStorage.getItem('wx:' + k) || 'null'); if (v && Date.now() - v.at < 3 * 3600e3) { mem.set(k, v.data); return v.data; } } catch { /* */ }
+  try { const v = JSON.parse(localStorage.getItem('wx:' + k) || 'null'); if (v && Date.now() - v.at < 3 * 3600e3) { mem.set(k, v.data); return v.data; } } catch { /* */ }
   return null;
 };
-const cachePut = (k, data) => { mem.set(k, data); try { sessionStorage.setItem('wx:' + k, JSON.stringify({ at: Date.now(), data })); } catch { /* */ } };
+const cachePut = (k, data) => { mem.set(k, data); try { localStorage.setItem('wx:' + k, JSON.stringify({ at: Date.now(), data })); } catch { /* */ } };
 
 /** { 'YYYY-MM-DD': {emoji, text, max, min, pop, kind:'forecast'|'lastyear'} } */
 export async function tripWeather(geo, days) {

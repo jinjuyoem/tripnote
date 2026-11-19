@@ -187,6 +187,7 @@ function openTrip(id) {
     }, (e) => console.error(name, e));
     S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'), sub('places'));
     const t = trip(); if (t) loadProfiles(t.members || []);
+    loadRouteStore(id).then(() => { if (S.tripId === id && S.tab === 'plan') renderSoon(); });
   }
   render(); window.scrollTo(0, 0);
 }
@@ -289,6 +290,46 @@ document.addEventListener('click', (e) => {
   if (S.isAdmin) adminSheet();
 });
 
+/** API 사용량 (관리자): /api/usage → 오늘 상한 대비 · 이번 달 무료분 대비 */
+let usageCache = null; // { at(ms), data }
+async function loadUsage(force) {
+  if (!force && usageCache && Date.now() - usageCache.at < 60e3) return usageCache.data;
+  const tok = await idToken();
+  const r = await fetch('/api/usage', { headers: { Authorization: `Bearer ${tok}` } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || r.status), { code: j.error });
+  usageCache = { at: Date.now(), data: j };
+  return j;
+}
+function usageHtml(u) {
+  const left = Math.max(0, new Date(u.resetAt) - Date.now());
+  const hh = Math.floor(left / 3600e3), mm = Math.floor((left % 3600e3) / 60e3);
+  const bar = (v, cap) => {
+    if (!cap) return '';
+    const pct = Math.min(100, (v / cap) * 100);
+    return `<div class="ubar"><i style="width:${pct.toFixed(1)}%" class="${pct >= 90 ? 'hot' : pct >= 70 ? 'warm' : ''}"></i></div>`;
+  };
+  const n = (x) => Number(x || 0).toLocaleString('ko-KR');
+  return `<p class="small muted" style="margin:0 2px 8px">오늘 한도 리셋까지 ${hh}시간 ${mm}분 · 몇 분 늦게 반영돼요</p>
+    ${u.meters.map((m) => `<div class="urow">
+      <div class="uhead"><b>${esc(m.name)}</b>${m.todayErr ? `<span class="ublock">막힘·오류 ${n(m.todayErr)}</span>` : ''}</div>
+      ${m.dayCap ? `<div class="uline"><span>오늘</span><span>${n(m.today)} / ${n(m.dayCap)}</span></div>${bar(m.today, m.dayCap)}` : `<div class="uline"><span>오늘</span><span>${n(m.today)}</span></div>`}
+      ${m.monthFree ? `<div class="uline"><span>이번 달 무료분</span><span>${n(m.month)} / ${n(m.monthFree)}</span></div>${bar(m.month, m.monthFree)}` : `<div class="uline"><span>이번 달</span><span>${n(m.month)}</span></div>`}
+    </div>`).join('')}
+    ${u.other?.length ? `<details class="uother"><summary class="small muted">그 밖의 API (이번 달)</summary>${u.other.map((o) => `<div class="uline small"><span>${esc(o.name)}</span><span>${n(o.month)}</span></div>`).join('')}</details>` : ''}
+    <p class="small muted" style="margin:8px 2px 0">요청 수 기준이라 실제 청구와 조금 다를 수 있어요. 정확한 금액은 GCP 결제 보고서에서 확인.</p>`;
+}
+async function paintUsage(box, force) {
+  if (!box) return;
+  if (!usageCache || force) box.innerHTML = '<p class="small muted">불러오는 중…</p>';
+  try { box.innerHTML = usageHtml(await loadUsage(force)); }
+  catch (e) {
+    console.error(e);
+    const msg = { nokey: 'Vercel에 GCP_SA_KEY 환경변수가 없어요', badkey: 'GCP_SA_KEY 형식이 잘못됐어요 (JSON 키 전체)', admin: '관리자만 볼 수 있어요', upstream: '구글에서 사용량을 못 가져왔어요. 서비스 계정 권한(Monitoring 뷰어)을 확인해 주세요' }[e.code] || '사용량을 불러오지 못했어요';
+    box.innerHTML = `<p class="small muted">${esc(msg)}</p>`;
+  }
+}
+
 /** 테스터 관리: 요청 승인 · 직접 추가 · 이름 메모 · 삭제 */
 async function adminSheet() {
   let reqs = []; let allow = [];
@@ -312,6 +353,8 @@ async function adminSheet() {
     </div>
     <button class="btn ghost block" data-x="applink" style="margin-top:8px">🔗 앱 초대 링크 복사</button>
     <p class="small muted" style="margin:6px 2px 0">링크로 들어와 로그인하면 요청이 자동으로 와요. 아래에서 승인만 하면 돼요.</p>
+    <h3 class="adm-h">📊 API 사용량 <button class="btn ghost small" data-x="ureload" style="margin-left:auto">새로고침</button></h3>
+    <div class="adm-usage" data-x="usage"></div>
     <h3 class="adm-h">요청 대기 <span>${reqs.length}</span></h3>
     ${reqs.length ? reqs.map((r) => `<div class="adm-row" data-email="${esc(r.id)}">
         <div class="adm-who"><b>${esc(r.name || '(이름 없음)')}</b><span>${esc(r.id)}</span></div>
@@ -325,6 +368,10 @@ async function adminSheet() {
         <div class="adm-line"><input class="inp adm-name" placeholder="누군지 메모" value="${esc(a.name || '')}"><button class="btn danger small" data-x="del">삭제</button></div>
       </div>`).join('')}`, (sh) => {
     sh.querySelector('[data-x=applink]').onclick = () => copy(`${location.origin}/?hi=1`, '앱 초대 링크를 복사했어요');
+    const ubox = sh.querySelector('[data-x=usage]');
+    if (usageCache) ubox.innerHTML = usageHtml(usageCache.data);
+    paintUsage(ubox, false);
+    sh.querySelector('[data-x=ureload]').onclick = () => paintUsage(ubox, true);
     sh.querySelector('[data-x=add]').onclick = async () => {
       const email = sh.querySelector('[name=nemail]').value.trim().toLowerCase();
       const name = sh.querySelector('[name=nname]').value.trim();
@@ -955,13 +1002,15 @@ async function openRecap(t) {
   });
   // 아직 계산 안 된 이동 구간 채우기 (걸은 시간 합계용)
   if (mapsEnabled) {
+    if (routeStore.tripId !== t.id) loadRouteStore(t.id);
+    await routeStore.ready;
     const jobs = [];
     for (const d of days) {
       for (const [a, b] of daySegments(d, myName(t))) {
         const mode = segMode(t, b);
         if (segResult(a, b, mode)) continue;
         const key = segKey(a, b, mode);
-        jobs.push(routeFor(a, b, mode).then((res) => { segCache.set(key, { ...res, key }); saveStop(t, b, { [b._mk]: { ...res, key } }); }).catch(() => {}));
+        jobs.push(routeFor(a, b, mode).then((res) => { segCache.set(key, { ...res, key }); saveStop(t, b, { [b._mk]: { ...res, key } }); putRoute(t, key, res); }).catch(() => {}));
         if (jobs.length >= 40) break;
       }
     }
@@ -1126,8 +1175,26 @@ async function loadWeather(t, days) {
 // 수단은 알아서: 걸어서 30분 미만 또는 대중교통과 10분 이내 차이면 도보, 아니면 대중교통. 구간마다 직접 바꿀 수도 있음
 const WALK_LIMIT = 30 * 60;
 const segMode = (_t, i) => i.moveMode || 'auto';
-const segKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|');
+// 구간 키: 좌표 + 수단만 (일정 순서가 바뀌어도 같은 두 지점이면 다시 계산 안 함)
+const c5 = (x) => Number(x).toFixed(5);
+const segKey = (from, to, mode) => [c5(from.lat), c5(from.lng), c5(to.lat), c5(to.lng), mode].join('|');
+const oldSegKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|'); // 예전에 저장된 결과도 재사용
 const segCache = new Map(); // key -> {meters,secs,used} | {none} | 'loading' | {err}
+// 여행 전체가 같이 쓰는 경로 결과 (trips/{id}/routes/{key}). 동행인이 이미 계산한 구간은 API 안 부름
+const routeStore = { tripId: null, map: new Map(), ready: null };
+function loadRouteStore(tripId) {
+  routeStore.tripId = tripId; routeStore.map = new Map();
+  routeStore.ready = tripId ? getDocs(collection(db, 'trips', tripId, 'routes'))
+    .then((s) => { if (routeStore.tripId === tripId) s.docs.forEach((d) => routeStore.map.set(d.id, d.data())); })
+    .catch((e) => console.warn('routes', e)) : Promise.resolve();
+  return routeStore.ready;
+}
+function putRoute(t, key, res) {
+  if (!res || res.err || routeStore.tripId !== t.id) return;
+  const v = { ...res, key, at: Date.now() };
+  routeStore.map.set(key, v);
+  setDoc(doc(db, 'trips', t.id, 'routes', key), v).catch(() => {});
+}
 const gDirUrl = (from, to, m) => `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${MOVES[m][3]}`;
 const segCN = (from, to) => inChina(from) && inChina(to);
 // 중국 본토 구간은 고덕 길찾기
@@ -1157,7 +1224,9 @@ function segResult(from, to, mode) {
   const k = segKey(from, to, mode);
   if (segCache.has(k)) return segCache.get(k);
   const m = to.move; // 저장해 둔 계산 결과 재사용 (API 호출 아끼기)
-  if (m && m.key === k) { segCache.set(k, m); return m; }
+  if (m && (m.key === k || m.key === oldSegKey(from, to, mode))) { segCache.set(k, m); return m; }
+  const g = routeStore.map.get(k);
+  if (g) { segCache.set(k, g); return g; }
   return null;
 }
 function segText(from, to, mode) {
@@ -1178,6 +1247,13 @@ async function routeFor(from, to, mode) {
     const r = await computeRoute(from, to, MOVES[mode][2], when);
     return r?.none ? { none: true } : { ...r, used: mode };
   }
+  // 직선 4km 넘으면 걸어서 50분 이상이라 도보 계산은 건너뜀 (대중교통 정보 없을 때만 도보 계산)
+  if (straightM(from, to) > 4000) {
+    const tr0 = await computeRoute(from, to, 'TRANSIT', when);
+    if (tr0 && !tr0.none) return { ...tr0, used: 'transit' };
+    const w0 = await computeRoute(from, to, 'WALK', when);
+    return w0 && !w0.none ? { ...w0, used: 'walk', transitNone: true } : { none: true };
+  }
   const walk = await computeRoute(from, to, 'WALK', when);
   const okWalk = walk && !walk.none;
   if (okWalk && walk.secs < WALK_LIMIT) return { ...walk, used: 'walk' }; // 걸어서 30분 미만 → 도보
@@ -1192,6 +1268,8 @@ async function routeFor(from, to, mode) {
 }
 async function fillSegments(t) {
   if (!mapsEnabled) return;
+  if (routeStore.tripId !== t.id) loadRouteStore(t.id);
+  await routeStore.ready; // 동행인이 계산해 둔 결과부터 확인
   // 화면에 보이는 구간 + 요약(내/보는 사람 동선) 구간
   const all = new Map();
   [...shownSegs, ...daySegments(S.day, (S.ordering ? null : S.viewAs) || myName(t))].forEach(([a, b]) => all.set(sidOf(a, b), [a, b]));
@@ -1215,6 +1293,7 @@ async function fillSegments(t) {
     routeFor(from, to, mode).then((res) => {
       segCache.set(key, { ...res, key });
       saveStop(t, to, { [to._mk]: { ...res, key } });
+      putRoute(t, key, res);
       paint();
     }).catch((e) => { console.error(e); segCache.set(key, { err: true }); paint(); });
   }
@@ -1824,7 +1903,7 @@ function tripForm(t) {
 }
 async function deleteTripData(t) {
   const id = t.id;
-  for (const name of ['items', 'expenses', 'flights', 'files', 'places', 'notes']) {
+  for (const name of ['items', 'expenses', 'flights', 'files', 'places', 'notes', 'routes']) {
     const snap = await getDocs(collection(db, 'trips', id, name));
     let batch = writeBatch(db); let n = 0;
     for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }

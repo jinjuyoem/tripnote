@@ -223,9 +223,10 @@ export async function mountPlaceSearch(container, onPick, near) {
     show(''); inp.value = pred.mainText?.text || pred.text?.text || '';
     try {
       const place = pred.toPlace();
-      await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
+      // displayName을 받으면 Pro 요금(1천 건당 $17)이라, 이름은 검색 목록 글자를 쓰고 주소·좌표만 받음 (Essentials, $5)
+      await place.fetchFields({ fields: ['formattedAddress', 'location'] });
       token = new AutocompleteSessionToken();
-      onPick({ name: place.displayName || inp.value, address: place.formattedAddress || '', lat: place.location?.lat(), lng: place.location?.lng(), placeId: place.id });
+      onPick({ name: pred.mainText?.text || pred.text?.text || inp.value, address: place.formattedAddress || '', lat: place.location?.lat(), lng: place.location?.lng(), placeId: place.id });
     } catch (err) { console.error(err); show('<div class="psmsg">장소 정보를 못 가져왔어요. 다시 골라 주세요.</div>'); }
   });
   return inp;
