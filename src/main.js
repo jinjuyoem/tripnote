@@ -371,7 +371,7 @@ function taxiSheet(from, to) {
   openSheet(`<h2>🚕 택시 부르기</h2>
     <div class="taxiroute"><div><span>출발</span><b>${esc(f.name)}</b></div><em>→</em><div><span>도착</span><b>${esc(d.name)}</b></div></div>
     <div class="taxiapps">
-      ${cn ? `<a class="taxiapp didi" href="alipays://" data-x="didi"><span class="ta-ico">D</span><div><b>디디 (알리페이)</b><i>중국 · 알리페이 → 교통 → 디디</i></div></a>` : ''}
+      ${cn ? `<a class="taxiapp didi" href="https://ds.alipay.com/?scheme=${encodeURIComponent('alipays://platformapi/startapp?saId=10000007')}" target="_blank" rel="noopener" data-x="didi"><span class="ta-ico">D</span><div><b>디디 (알리페이)</b><i>중국 · 알리페이 → 교통 → 디디</i></div></a>` : ''}
       <a class="taxiapp kakao" href="${esc(kakao)}" data-x="kakao"><span class="ta-ico">T</span><div><b>카카오 T</b><i>한국 · 일본 · 베트남</i></div></a>
       <a class="taxiapp uber" href="${esc(uber)}" target="_blank" rel="noopener"><span class="ta-ico">U</span><div><b>Uber</b><i>일본 · 홍콩 · 대만 · 해외 대부분</i></div></a>
     </div>
