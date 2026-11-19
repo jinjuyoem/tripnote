@@ -66,6 +66,21 @@ export async function tripWeather(geo, days) {
       }
     } catch (e) { console.warn('forecast', e); }
   }
+  // 1-2) 구글 예보가 안 되는 지역(중국 본토 등)은 Open-Meteo 예보(16일)
+  const today = new Date().toISOString().slice(0, 10);
+  const lim = new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10);
+  const need = real.filter((d) => !out[d] && d >= today && d <= lim);
+  if (need.length) {
+    try {
+      const r = await withTimeout(fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16`));
+      const j = await r.json(); const D = j.daily || {};
+      (D.time || []).forEach((d, i) => {
+        if (!need.includes(d)) return;
+        const [emoji, text] = fromWmo(D.weather_code?.[i]);
+        out[d] = { kind: 'forecast', emoji, text, max: D.temperature_2m_max?.[i], min: D.temperature_2m_min?.[i], pop: D.precipitation_probability_max?.[i] };
+      });
+    } catch (e) { console.warn('forecast2', e); }
+  }
   // 2) 예보 범위 밖은 작년 같은 날짜 실제 날씨
   const rest = real.filter((d) => !out[d]);
   if (rest.length) {
@@ -80,6 +95,6 @@ export async function tripWeather(geo, days) {
       });
     } catch (e) { console.warn('archive', e); }
   }
-  cachePut(k, out);
+  if (Object.keys(out).length) cachePut(k, out); // 실패(빈 결과)는 저장 안 함
   return out;
 }

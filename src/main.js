@@ -4,7 +4,7 @@ import {
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
   getDoc, arrayUnion, writeBatch, getDocs, deleteField, idToken,
 } from './firebase.js';
-import { createMap, mountPlaceSearch, mapsEnabled, computeRoute, geocodeAirport } from './maps.js';
+import { createMap, mountPlaceSearch, mapsEnabled, computeRoute, geocodeAirport, geocodeCityG } from './maps.js';
 import { tripWeather, geocodeCity } from './weather.js';
 import { openTimeWheel, timeField, wireTimeFields } from './timewheel.js';
 import {
@@ -1104,7 +1104,7 @@ async function loadWeather(t, days) {
     let geo = t.geo;
     if (!geo) {
       const it = S.items.find((i) => ll(i));
-      geo = it ? { lat: it.lat, lng: it.lng } : await geocodeCity(t.city);
+      geo = it ? { lat: it.lat, lng: it.lng } : (await geocodeCity(t.city).catch(() => null)) || (await geocodeCityG(t.city).catch(() => null));
       if (geo) updateDoc(doc(db, 'trips', t.id), { geo }).catch(() => {});
     }
     if (!geo) return;

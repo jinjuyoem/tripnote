@@ -85,26 +85,31 @@ export async function createMap(el) {
   function focus(p) { map.panTo(p); if (map.getZoom() < 15) map.setZoom(15); }
   // 여행 도시로 지도 맞추기. 저장된 좌표(geo)가 있으면 API 없이 바로, 없으면 지오코딩 → 장소 검색 순으로 찾고 좌표를 돌려줌
   async function centerOn(text, geo) {
-    if (geo && geo.lat != null) { map.setCenter({ lat: +geo.lat, lng: +geo.lng }); map.setZoom(11); return geo; }
-    if (!text) return null;
-    try {
-      const { Geocoder } = await google.maps.importLibrary('geocoding');
-      const { results } = await new Geocoder().geocode({ address: text });
-      const r = results?.[0];
-      if (r) { map.fitBounds(r.geometry.viewport); return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() }; }
-    } catch { /* 장소 검색으로 다시 */ }
-    try {
-      const { Place } = await google.maps.importLibrary('places');
-      const { places } = await Place.searchByText({ textQuery: text, fields: ['location', 'viewport'], maxResultCount: 1 });
-      const pl = places?.[0];
-      if (pl?.location) {
-        if (pl.viewport) map.fitBounds(pl.viewport); else { map.setCenter(pl.location); map.setZoom(11); }
-        return { lat: pl.location.lat(), lng: pl.location.lng() };
-      }
-    } catch { /* 무시 */ }
-    return null;
+    const g = geo && geo.lat != null ? geo : await geocodeCityG(text);
+    if (g) { map.setCenter({ lat: +g.lat, lng: +g.lng }); map.setZoom(11); }
+    return g || null;
   }
   return { map, draw, focus, centerOn, clear };
+}
+
+/** 도시 이름 → 좌표 (구글). 한국 쪽 쏠림을 피하려고 도시·지역 결과만 받음 */
+export async function geocodeCityG(name) {
+  if (!mapsEnabled || !name) return null;
+  await bootstrap();
+  const ok = (types = []) => types.some((x) => ['locality', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'colloquial_area'].includes(x));
+  try {
+    const { Geocoder } = await google.maps.importLibrary('geocoding');
+    const { results } = await new Geocoder().geocode({ address: name });
+    const r = (results || []).find((x) => ok(x.types));
+    if (r) return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() };
+  } catch { /* 장소 검색으로 */ }
+  try {
+    const { Place } = await google.maps.importLibrary('places');
+    const { places } = await Place.searchByText({ textQuery: name, includedType: 'locality', fields: ['location'], maxResultCount: 1 });
+    const loc = places?.[0]?.location;
+    if (loc) return { lat: loc.lat(), lng: loc.lng() };
+  } catch { /* 무시 */ }
+  return null;
 }
 
 /** 공항 코드(KIX 등) → 좌표 */
