@@ -216,7 +216,7 @@ export async function mountPlaceSearch(container, onPick, near) {
       show(`<div class="psmsg">${quota ? '오늘 검색 한도를 다 썼어요. 내일 다시 돼요.' : '검색이 안 돼요. 잠시 후 다시 해 주세요.'}</div>`);
     }
   }
-  inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => run(inp.value), 400); }); // 치는 동안엔 안 부르고 멈췄을 때만
+  inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => run(inp.value), 1000); }); // 치는 동안엔 안 부르고 1초 멈췄을 때만
   list.addEventListener('click', async (e) => {
     const b = e.target.closest('.psitem'); if (!b) return;
     const pred = items[+b.dataset.i]; if (!pred) return;
