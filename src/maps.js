@@ -23,7 +23,7 @@ function bootstrap() {
         m.head.append(a);
       }));
       if (!d[l]) d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n));
-    })({ key: KEY, v: 'weekly', language: 'ko', region: 'KR' });
+    })({ key: KEY, v: 'quarterly', language: 'ko', region: 'KR' }); // weekly는 검색창 UI가 예고 없이 바뀌어서 안정판 사용
     Promise.all([
       google.maps.importLibrary('maps'),
       google.maps.importLibrary('marker'),
@@ -178,9 +178,10 @@ export async function mountPlaceSearch(container, onPick, near) {
   if (!mapsEnabled) return null;
   await bootstrap();
   const { PlaceAutocompleteElement } = await google.maps.importLibrary('places');
-  const opts = {};
-  if (near) opts.locationBias = near;
-  const el = new PlaceAutocompleteElement(opts);
+  let el;
+  try { el = new PlaceAutocompleteElement(near ? { locationBias: near } : {}); }
+  catch (e) { console.warn('검색 기준점 무시', e); el = new PlaceAutocompleteElement({}); }
+  el.addEventListener('gmp-error', (e) => console.error('장소 검색 오류', e));
   el.setAttribute('placeholder', '장소 검색 (예: 도톤보리)');
   el.style.width = '100%';
   el.style.colorScheme = 'light';
