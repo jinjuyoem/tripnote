@@ -187,21 +187,28 @@ export async function mountPlaceSearch(container, onPick, near) {
   container.innerHTML = `<div class="psearch"><input class="inp" type="search" enterkeyhint="search" autocomplete="off" placeholder="장소 검색 (예: 도톤보리)"><div class="pslist" hidden></div></div>`;
   const inp = container.querySelector('input'), list = container.querySelector('.pslist');
   let token = new AutocompleteSessionToken(), seq = 0, timer = null, items = [];
+  const acCache = new Map(); // 같은 검색어는 다시 안 부름
   const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const show = (html) => { list.innerHTML = html; list.hidden = !html; };
+  function paint() {
+      show(items.length ? items.map((p, i) => `<button type="button" class="psitem" data-i="${i}"><b>${escH(p.mainText?.text || p.text?.text)}</b><span>${escH(p.secondaryText?.text || '')}</span></button>`).join('')
+        : '<div class="psmsg">검색 결과가 없어요. 영어나 현지어로도 쳐 보세요.</div>');
+  }
   async function run(q) {
     const my = ++seq;
-    if (!q.trim()) { items = []; return show(''); }
+    q = q.trim();
+    if (q.length < 2) { items = []; return show(''); } // 한 글자는 결과가 의미 없고 호출만 늘어서 2글자부터
+    if (acCache.has(q)) { items = acCache.get(q); return paint(); }
     try {
       const req = { input: q, language: 'ko', sessionToken: token };
       if (near) req.locationBias = near;
       let res;
       try { res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
-      catch (e) { if (!near) throw e; delete req.locationBias; res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
+      catch (e) { if (!near || /quota|RESOURCE_EXHAUSTED|429/i.test(String(e?.message || e))) throw e; delete req.locationBias; res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
       if (my !== seq) return;
       items = (res.suggestions || []).map((x) => x.placePrediction).filter(Boolean);
-      show(items.length ? items.map((p, i) => `<button type="button" class="psitem" data-i="${i}"><b>${escH(p.mainText?.text || p.text?.text)}</b><span>${escH(p.secondaryText?.text || '')}</span></button>`).join('')
-        : '<div class="psmsg">검색 결과가 없어요. 영어나 현지어로도 쳐 보세요.</div>');
+      acCache.set(q, items); if (acCache.size > 100) acCache.delete(acCache.keys().next().value);
+      paint();
     } catch (e) {
       if (my !== seq) return;
       console.error('장소 검색 오류', e);
@@ -209,7 +216,7 @@ export async function mountPlaceSearch(container, onPick, near) {
       show(`<div class="psmsg">${quota ? '오늘 검색 한도를 다 썼어요. 내일 다시 돼요.' : '검색이 안 돼요. 잠시 후 다시 해 주세요.'}</div>`);
     }
   }
-  inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => run(inp.value), 250); });
+  inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => run(inp.value), 400); }); // 치는 동안엔 안 부르고 멈췄을 때만
   list.addEventListener('click', async (e) => {
     const b = e.target.closest('.psitem'); if (!b) return;
     const pred = items[+b.dataset.i]; if (!pred) return;
