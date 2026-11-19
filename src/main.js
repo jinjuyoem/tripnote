@@ -97,8 +97,7 @@ async function sha256hex(str) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 const BETA_NOTE = `<div class="beta-note"><b>🔒 비공개 베타 테스트 중이에요</b>
-  <p>지금은 개발자 주변 지인에게만 테스트하고 있어요. 사용하려면 승인(allowlist)이 필요해요.</p>
-  <p class="small">링크를 다른 분께 공유하지 말아 주세요 🙏</p></div>`;
+  <p>지금은 지인에게만 테스트하고 있어요. 사용하려면 승인이 필요해요.</p></div>`;
 
 function stopData() {
   S.unsubTrips?.(); S.unsubSub.forEach((f) => f()); S.unsubSub = []; S.unsubMe?.();
