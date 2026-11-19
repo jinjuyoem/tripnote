@@ -40,6 +40,15 @@ service cloud.firestore {
       allow delete: if allowed() && isMember(resource.data.tripId);
     }
 
+    // 보기 전용 공유 링크: 코드를 아는 사람은 로그인 없이 하나씩 보기(목록 조회 금지), 여행 참여자만 만들기·고치기·끄기
+    match /shares/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if allowed() && isMember(request.resource.data.tripId)
+                            && (resource == null || resource.data.tripId == request.resource.data.tripId);
+      allow delete: if allowed() && isMember(resource.data.tripId);
+    }
+
     // 프로필(이름·사진): 로그인한 사람은 보기, 본인만 수정
     match /users/{uid} {
       allow read: if allowed();

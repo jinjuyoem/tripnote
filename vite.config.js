@@ -25,6 +25,11 @@ export default defineConfig({
         // 구글 로그인 처리 경로(/__/auth)는 서비스워커가 가로채지 않게
         navigateFallbackDenylist: [/^\/__\//],
         globPatterns: ['**/*.{js,css,html,svg,png}'],
+        // 오프라인에서도 글꼴·프로필 사진이 보이게
+        runtimeCaching: [
+          { urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/gh\/orioncactus\/pretendard\//, handler: 'CacheFirst', options: { cacheName: 'fonts', expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 365 }, cacheableResponse: { statuses: [0, 200] } } },
+          { urlPattern: /^https:\/\/lh3\.googleusercontent\.com\//, handler: 'StaleWhileRevalidate', options: { cacheName: 'avatars', expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } } },
+        ],
       },
     }),
   ],

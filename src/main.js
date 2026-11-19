@@ -23,10 +23,12 @@ const S = {
   access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
+  checks: [], packMine: false, wishSort: 'new', fresh: {}, share: null,
 };
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
 let pendingJoin = params.get('join');
+const shareCode = params.get('s'); // 보기 전용 공유 링크(?s=코드): 로그인 없이 일정만
 // 앱 초대 링크(?hi=1): 로그인하면 사용 요청을 자동으로 보내고, 승인 후 처음 열 때 사용 방법을 띄움
 if (params.get('hi')) { try { localStorage.setItem('tn_welcome', '1'); } catch { /* */ } }
 const isWelcome = () => { try { return localStorage.getItem('tn_welcome') === '1'; } catch { return false; } };
@@ -81,12 +83,13 @@ document.querySelector('#app').innerHTML = `
     </div>
   </div>
   <main id="view"></main>
-  <div id="fabhost"></div>`;
+  <div id="fabhost"></div>
+  <div id="netbadge" class="netbadge" hidden>📴 오프라인 · 저장된 내용을 보여줘요. 고친 건 연결되면 저장돼요</div>`;
 
 let mapCtl = null; let mapInitP = null;
 async function ensureMap() {
   if (!mapsEnabled) return null;
-  if (!mapInitP) mapInitP = createMap($('map')).then((c) => (mapCtl = c)).catch((e) => { console.error(e); return null; });
+  if (!mapInitP) mapInitP = createMap($('map')).then((c) => (mapCtl = c)).catch((e) => { console.error(e); mapInitP = null; return null; }); // 오프라인 실패 시 다음에 다시 시도
   return mapInitP;
 }
 $('mapToggle').onclick = () => { S.mapAll = !S.mapAll; render(); };
@@ -146,6 +149,7 @@ function startData(u) {
     (snap) => {
       S.trips = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       S.tripsLoaded = true;
+      prefetchTrips();
       if (S.tripId && !trip()) openTrip(null); else renderSoon();
     },
     (err) => { console.error(err); S.tripsLoaded = true; toast('여행 목록을 불러오지 못했어요'); render(); },
@@ -177,15 +181,16 @@ async function joinTrip(code) {
 /* ---------------- subscriptions ---------------- */
 function openTrip(id) {
   S.unsubSub.forEach((f) => f()); S.unsubSub = [];
-  S.items = []; S.expenses = []; S.flights = []; S.places = [];
+  S.items = []; S.expenses = []; S.flights = []; S.places = []; S.checks = []; S.fresh = {};
   S.tripId = id; S.day = null; S.mapAll = false; S.ordering = false; S.viewAs = null; S.wishCat = 'all';
   if (id) {
     const sub = (name) => onSnapshot(collection(db, 'trips', id, name), (s) => {
       S[name] = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (!s.metadata.fromCache) S.fresh[name] = true; // 서버에서 한 번 받은 뒤에만 공유 스냅샷 갱신
       if (name === 'items') { const tt = trip(); if (tt) normalizePositions(tt); }
       renderSoon();
     }, (e) => console.error(name, e));
-    S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'), sub('places'));
+    S.unsubSub.push(sub('items'), sub('expenses'), sub('flights'), sub('places'), sub('checks'));
     const t = trip(); if (t) loadProfiles(t.members || []);
     loadRouteStore(id).then(() => { if (S.tripId === id && S.tab === 'plan') renderSoon(); });
   }
@@ -223,12 +228,13 @@ let renderQueued = false;
 function renderSoon() {
   if (renderQueued) return; renderQueued = true;
   requestAnimationFrame(function go() {
-    if (dragOn || document.getElementById('segpop')) { requestAnimationFrame(go); return; }
+    if (dragOn || document.getElementById('segpop') || packComposing) { requestAnimationFrame(go); return; } // 한글 조합 중엔 화면 다시 안 그림
     renderQueued = false; render();
   });
 }
 function render() {
   const t = trip();
+  if (shareCode) { hideSplash(); return viewShare(); }
   if (S.authReady) hideSplash();
   if (!S.authReady) { $('hdr').innerHTML = ''; $('view').innerHTML = '<div class="empty">불러오는 중…</div>'; return showMap(false); }
   if (!S.user) return viewLogin();
@@ -475,6 +481,10 @@ function guideSheet() {
       <li><span>⭐</span><div><b>별점</b>다녀온 일정에서 '완료'를 누르고 별을 끌어서 매겨요.</div></li>
       <li><span>🚕</span><div><b>이동·택시</b>장소 사이 '🚶 도보' 버튼을 누르면 이동 수단을 바꿀 수 있어요. 차를 고르면 택시 앱으로 바로 넘어가요.</div></li>
       <li><span>✈️</span><div><b>편명 불러오기·상태 체크</b>항공권에 편명만 넣고 불러오기를 누르면 시간이 채워지고, 카드의 상태 체크로 지연·게이트를 볼 수 있어요.</div></li>
+      <li><span>🧳</span><div><b>준비물</b>준비물 탭에서 같이 챙길 걸 적고 담당을 정해요. '내 담당'만 모아 볼 수 있어요.</div></li>
+      <li><span>👍</span><div><b>찜 투표</b>가고 싶은 찜에 👍를 누르면 '👍 많은 순'으로 모아 봐요.</div></li>
+      <li><span>🔗</span><div><b>보기 전용 링크</b>여행 설정 → 일정 공유 링크를 보내면 로그인 없이 일정만 볼 수 있어요.</div></li>
+      <li><span>📴</span><div><b>오프라인</b>한 번 열어 둔 여행은 데이터가 끊겨도 일정·항공권·QR이 보여요.</div></li>
       <li><span>🎨</span><div><b>여행 카드 꾸미기</b>여행 설정에서 카드 색이나 사진을 바꿀 수 있어요.</div></li>
       <li><span>🎞</span><div><b>리캡</b>여행 설정 → 리캡에서 어워드를 보고, 후기와 서로에게 한마디를 남겨요.</div></li>
     </ul></div>
@@ -519,11 +529,12 @@ function viewTrip(t) {
   $('hdr').innerHTML = `<button class="iconbtn" data-act="home" aria-label="뒤로">${I.back}</button><h1>${esc(t.name)}</h1>
     <button class="iconbtn" data-act="editTrip" aria-label="설정">${I.gear}</button>`;
   $('banner').innerHTML = '';
-  const tabs = [['plan', '일정'], ['wish', '찜'], ['flight', '항공'], ['money', '가계부'], ['settle', '정산']];
+  const tabs = [['plan', '일정'], ['wish', '찜'], ['flight', '항공'], ['pack', '준비물'], ['money', '가계부'], ['settle', '정산']];
   let body = '';
   if (S.tab === 'plan') body = viewPlan(t, days);
   else if (S.tab === 'wish') body = viewWish(t);
   else if (S.tab === 'flight') body = viewFlights(t);
+  else if (S.tab === 'pack') body = viewPack(t);
   else if (S.tab === 'money') body = viewMoney(t);
   else body = viewSettle(t);
   $('view').innerHTML = `<div class="wrap">
@@ -531,6 +542,7 @@ function viewTrip(t) {
       ${t.city ? `<span class="chip">📍 ${esc(t.city)}</span>` : ''}
       ${t.start ? `<span class="chip">${esc(md(t.start))}${t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : ''}</span>` : ''}
       ${dday(t) ? `<span class="chip accent">${esc(dday(t))}</span>` : ''}
+      ${localTimeChip(t)}
       ${dday(t) === '완료' ? '<button class="chip recapchip" data-act="recap">🎞 여행 리캡</button>' : ''}
       <button class="avstack" data-act="editTrip" aria-label="참여자">${(t.members || []).slice(0, 5).map((u) => avatar(u, 26, t.memberNames?.[u])).join('')}${(t.members || []).length > 5 ? `<span class="av more">+${t.members.length - 5}</span>` : ''}</button>
     </div>
@@ -542,6 +554,8 @@ function viewTrip(t) {
   else if (S.tab === 'wish') drawWishMap(t);
   else showMap(false);
   if (S.tab === 'flight') loadQrThumbs(t);
+  if (S.tab === 'pack') wirePack(t);
+  ensureTz(t); syncShare(t);
 }
 
 /* ---------- plan ---------- */
@@ -1450,8 +1464,9 @@ const WCATS = ['맛집', '카페', '쇼핑', '관광', '숙소', '기타'];
 const CAT_EMOJI = { 관광: '📸', 맛집: '🍜', 카페: '☕', 쇼핑: '🛍️', 숙소: '🏨', 이동: '🚌', 기타: '📌', 식비: '🍽️', 교통: '🚇', 항공: '✈️' };
 const catLabel = (c) => `${CAT_EMOJI[c] ? CAT_EMOJI[c] + ' ' : ''}${c}`;
 const SPEND_CAT = { 맛집: '식비', 카페: '식비', 쇼핑: '쇼핑', 관광: '관광', 숙소: '숙소', 이동: '교통', 기타: '기타' };
+const votesOf = (p) => Object.keys(p.votes || {}).filter((u) => p.votes[u]);
 function viewWish(t) {
-  const all = [...S.places].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const all = [...S.places].sort((a, b) => (S.wishSort === 'vote' ? votesOf(b).length - votesOf(a).length : 0) || (b.createdAt || 0) - (a.createdAt || 0));
   const cnt = (c) => all.filter((p) => (p.cat || '기타') === c).length;
   const list = S.wishCat === 'all' ? all : all.filter((p) => (p.cat || '기타') === S.wishCat);
   const days = tripDays(t);
@@ -1459,6 +1474,7 @@ function viewWish(t) {
       <button class="pill ${S.wishCat === 'all' ? 'on' : ''}" data-act="wishcat" data-v="all">전체 ${all.length}</button>
       ${WCATS.filter((c) => cnt(c)).map((c) => `<button class="pill ${S.wishCat === c ? 'on' : ''}" data-act="wishcat" data-v="${c}">${c} ${cnt(c)}</button>`).join('')}
     </div>
+    ${all.length > 1 ? `<div class="wishsort"><button class="${S.wishSort === 'new' ? 'on' : ''}" data-act="wishsort" data-v="new">최신순</button><button class="${S.wishSort === 'vote' ? 'on' : ''}" data-act="wishsort" data-v="vote">👍 많은 순</button></div>` : ''}
     ${list.length ? list.map((p) => {
       const c = ICATS[p.cat] || ICATS.기타;
       const added = p.addedTo && S.items.some((i) => i.id === p.addedTo.itemId);
@@ -1469,6 +1485,7 @@ function viewWish(t) {
         ${p.address ? `<div class="iaddr">${esc(p.address)}</div>` : ''}
         ${p.memo ? `<div class="imemo">${esc(p.memo)}</div>` : ''}
         <div class="iactions">
+          ${(() => { const v = votesOf(p); const mine = v.includes(S.user.uid); return `<button class="vote ${mine ? 'on' : ''}" data-act="vote" data-id="${esc(p.id)}" aria-pressed="${mine}">👍 ${v.length || ''}${v.length ? `<span class="vavs">${v.slice(0, 3).map((u) => avatar(u, 16, t.memberNames?.[u])).join('')}</span>` : ''}</button>`; })()}
           <button class="lnk map" data-act="toPlan" data-id="${esc(p.id)}">📅 일정에 넣기</button>
           <a class="lnk" href="${esc(placeUrl(t, { title: p.name, placeId: p.placeId }))}" target="_blank" rel="noopener">구글맵</a>
           ${inChina(p) ? `<a class="lnk" href="${esc(amapPlaceUrl(p, t.city))}" target="_blank" rel="noopener">고덕</a>` : ''}
@@ -1821,7 +1838,7 @@ function tripForm(t) {
     <div class="two"><label class="f"><span>출발</span><input class="inp" type="date" name="start" value="${esc(t.start)}"></label>
       <label class="f"><span>도착</span><input class="inp" type="date" name="end" value="${esc(t.end)}"></label></div>
     <div class="two"><label class="f"><span>현지 통화</span><select class="inp" name="currency">${CURRENCIES.map((c) => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-      <label class="f"><span id="rateLbl">기본 환율</span><input class="inp" type="number" step="any" inputmode="decimal" name="rate" value="${esc(String(Math.round((Number(t.rate) || 1) * rateUnit(t.currency) * 10000) / 10000))}"><div class="hint" id="rateHint"></div></label></div>
+      <label class="f"><span id="rateLbl">기본 환율</span><input class="inp" type="number" step="any" inputmode="decimal" name="rate" value="${esc(String(Math.round((Number(t.rate) || 1) * rateUnit(t.currency) * 10000) / 10000))}"><button type="button" class="fxbtn" data-x="fx">오늘 환율</button><div class="hint" id="rateHint"></div></label></div>
     ${isNew ? '' : `<div class="card soft"><h3>동행인 초대</h3>
       <p class="small muted">링크를 받은 사람이 구글 로그인하면 이 여행을 같이 보고 수정할 수 있어요. 정산·'누구랑?'·탑승자는 여기 참여한 사람 기준이에요.</p>
       <div class="joined" id="mList">${(t.members || []).map((u) => `<span class="jm">${avatar(u, 24, t.memberNames?.[u])}${esc(S.profiles.get(u)?.name || t.memberNames?.[u] || '?')}${u === t.ownerId ? ' <small>(방장)</small>' : isOwner ? ` <button type="button" class="gdel" data-kick="${esc(u)}" aria-label="내보내기">✕</button>` : ''}</span>`).join('') || '-'}</div>
@@ -1831,6 +1848,9 @@ function tripForm(t) {
       <p class="small muted">앱을 안 쓰는 친구도 이름만 넣으면 정산·누구랑?·탑승자에 같이 나와요.</p>
       <div class="joined" id="gList"></div>
       <div class="gadd"><input class="inp" id="gName" placeholder="이름 (예: 수아)" maxlength="20"><button type="button" class="btn ghost" data-x="gadd">추가</button></div></div>
+    ${isNew ? '' : `<div class="card soft"><h3>일정 공유 링크 <small class="muted">보기 전용</small></h3>
+      <p class="small muted">로그인 없이 일정만 볼 수 있는 링크예요. 부모님·친구한테 보내기 좋아요. 가계부·메모·예약번호·QR은 안 보여요. 일정을 고치면 자동으로 반영돼요.</p>
+      <div id="shareOut"></div></div>`}
     ${isNew ? '' : '<button type="button" class="btn ghost block" data-x="recap" style="margin-bottom:10px">🎞 여행 리캡 보기</button>'}
     <div class="rowbtns">${isOwner ? '<button class="btn danger" data-x="del">삭제</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh); wirePills(sh);
@@ -1866,7 +1886,39 @@ function tripForm(t) {
       sh.querySelector('#rateLbl').textContent = cur === 'KRW' ? '기본 환율' : `기본 환율 (${unit} ${cur} = ? 원)`;
       sh.querySelector('#rateHint').textContent = cur === 'KRW' ? '원화 여행이면 신경 안 써도 돼요' : unit === 100 ? `예: 100엔 = 920원이면 920` : `예: 1 ${cur} = 1,400원이면 1400`;
     };
-    rateUi(); sh.querySelector('[name=currency]').addEventListener('change', rateUi);
+    rateUi();
+    const fxBtn = sh.querySelector('[data-x=fx]'); const rateInp = sh.querySelector('[name=rate]');
+    const fxUi = () => { fxBtn.hidden = v('currency') === 'KRW'; };
+    fxUi();
+    fxBtn.onclick = () => fillRate(rateInp, v('currency'), fxBtn);
+    sh.querySelector('[name=currency]').addEventListener('change', () => {
+      rateUi(); fxUi();
+      if (v('currency') === 'KRW') rateInp.value = '1';
+      else fillRate(rateInp, v('currency'), fxBtn); // 통화 바꾸면 오늘 환율 자동으로
+    });
+    // 공유 링크
+    const shareOut = sh.querySelector('#shareOut');
+    const drawShare = () => {
+      if (!shareOut) return;
+      const cur = trip() || t;
+      if (!cur.shareCode) { shareOut.innerHTML = '<button type="button" class="btn ghost block" data-x="mkshare">공유 링크 만들기</button>'; }
+      else {
+        const url = `${location.origin}/?s=${cur.shareCode}`;
+        shareOut.innerHTML = `<div class="invlink mono">${esc(url)}</div>
+          <div class="rowbtns"><button type="button" class="btn ghost" data-x="scp">링크 복사</button>${navigator.share ? '<button type="button" class="btn pri" data-x="ssh">공유하기</button>' : ''}</div>
+          <button type="button" class="lnk" data-x="sstop" style="margin-top:8px">링크 끄기</button>`;
+        shareOut.querySelector('[data-x=scp]').onclick = () => copy(url, '공유 링크를 복사했어요');
+        shareOut.querySelector('[data-x=ssh]')?.addEventListener('click', () => navigator.share({ title: cur.name, text: `'${cur.name}' 일정이에요`, url }).catch(() => {}));
+        shareOut.querySelector('[data-x=sstop]').onclick = () => askConfirm('공유 링크를 끌까요? 이미 보낸 링크로는 더 이상 볼 수 없어요.', '끄기', async () => {
+          await write(() => stopShare(trip() || t)); t.shareCode = null; drawShare(); toast('공유 링크를 껐어요');
+        });
+      }
+      shareOut.querySelector('[data-x=mkshare]')?.addEventListener('click', async () => {
+        if (S.tripId !== t.id || !S.fresh.items) return toast('일정을 불러온 뒤 다시 눌러 주세요');
+        try { t.shareCode = await makeShare(trip() || t); drawShare(); } catch (e) { console.error(e); toast(e?.code === 'permission-denied' ? '권한이 없어요 (규칙 업데이트 필요)' : '링크를 만들지 못했어요'); }
+      });
+    };
+    drawShare();
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('name')) return toast('여행 이름을 적어 주세요');
       let start = v('start'), end = v('end'); if (start && end && end < start) [start, end] = [end, start];
@@ -1917,13 +1969,14 @@ function tripForm(t) {
 }
 async function deleteTripData(t) {
   const id = t.id;
-  for (const name of ['items', 'expenses', 'flights', 'files', 'places', 'notes', 'routes']) {
+  for (const name of ['items', 'expenses', 'flights', 'files', 'places', 'notes', 'routes', 'checks']) {
     const snap = await getDocs(collection(db, 'trips', id, name));
     let batch = writeBatch(db); let n = 0;
     for (const d of snap.docs) { batch.delete(d.ref); if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); } }
     await batch.commit();
   }
   if (t.inviteCode) await deleteDoc(doc(db, 'invites', t.inviteCode));
+  if (t.shareCode) await deleteDoc(doc(db, 'shares', t.shareCode)).catch(() => {});
   await deleteDoc(doc(db, 'trips', id));
 }
 async function deleteTrip(t) {
@@ -2198,8 +2251,10 @@ function expForm(t, e) {
       rateBox.innerHTML = `<label class="f"><span>환율 (${unit} ${esc(cur)} = ? 원)</span>
         <div class="two" style="align-items:center"><input class="inp mono" type="number" step="any" inputmode="decimal" name="rate" value="${esc(rateTyped)}" placeholder="${esc(String(Math.round((Number(t.rate) || 0) * unit * 100) / 100))}">
         <b id="ratePrev" class="mono" style="flex:1;text-align:right"></b></div>
+        <button type="button" class="fxbtn" data-x="efx">오늘 환율</button>
         <div class="hint">비워두면 여행 기본 환율(${esc(rateLabel(cur, t.rate))})로 계산해요. 카드 결제 환율을 넣으면 정산이 더 정확해요.</div></label>`;
       rateBox.querySelector('[name=rate]').addEventListener('input', (ev) => { rateTyped = ev.target.value; preview(); });
+      rateBox.querySelector('[data-x=efx]').onclick = (ev) => fillRate(rateBox.querySelector('[name=rate]'), cur, ev.currentTarget);
       preview();
     };
     drawRate();
@@ -2334,6 +2389,209 @@ async function doDeleteAccount() {
   }
 }
 
+/* ---------- 준비물 체크리스트 (여행마다 공유, 사람별 담당) ---------- */
+const PACK_ABROAD = ['여권', '항공권·숙소 예약 확인', '환전·해외결제 카드', 'eSIM·유심', '충전기·멀티 어댑터', '보조배터리', '상비약', '세면도구', '여행자 보험'];
+const PACK_LOCAL = ['숙소 예약 확인', '신분증', '충전기', '보조배터리', '상비약', '세면도구'];
+const packOrder = (c) => c.pos ?? c.createdAt ?? 0;
+let packDraft = ''; let packFocus = false; let packComposing = false; // 다시 그려도 입력 중인 글자 유지
+function viewPack(t) {
+  const mine = myName(t);
+  const all = [...S.checks].sort((a, b) => packOrder(a) - packOrder(b));
+  const mineCnt = all.filter((c) => c.who === mine).length;
+  const list = S.packMine ? all.filter((c) => c.who === mine) : all;
+  const done = all.filter((c) => c.done).length;
+  const pct = all.length ? Math.round((done / all.length) * 100) : 0;
+  return `<div class="packsum"><div><b>${done}</b> / ${all.length} 챙김</div><div class="ubar"><i style="width:${pct}%"></i></div></div>
+    <div class="packadd"><input class="inp" id="ckInput" placeholder="챙길 것 (예: 우산)" maxlength="40" enterkeyhint="done" value="${esc(packDraft)}"><button class="btn dark" id="ckAdd">추가</button></div>
+    ${all.length ? `<div class="wishfilter"><button class="pill ${S.packMine ? '' : 'on'}" data-act="packMine" data-v="0">전체 ${all.length}</button><button class="pill ${S.packMine ? 'on' : ''}" data-act="packMine" data-v="1">내 담당 ${mineCnt}</button></div>` : ''}
+    ${list.length ? `<div class="packlist">${list.map((c) => `<div class="ck ${c.done ? 'done' : ''}">
+        <button class="ckbox" data-act="ckToggle" data-id="${esc(c.id)}" aria-label="${c.done ? '체크 해제' : '챙겼어요'}">${c.done ? '✓' : ''}</button>
+        <div class="ckt">${esc(c.text)}${c.done && c.doneBy ? `<span>${esc(c.doneBy)} 챙김</span>` : ''}</div>
+        <button class="ckwho ${c.who ? '' : 'none'}" data-act="ckWho" data-id="${esc(c.id)}">${c.who ? `${nameAvatar(t, c.who, 18)}${esc(c.who)}` : '담당 정하기'}</button>
+        <button class="ckdel" data-act="ckDel" data-id="${esc(c.id)}" aria-label="지우기">✕</button>
+      </div>`).join('')}</div>`
+      : S.packMine ? '<div class="empty"><b>내 담당이 없어요</b>항목 옆 \'담당 정하기\'로 나눠 보세요.</div>'
+        : `<div class="empty"><b>준비물을 같이 챙겨요</b>담당을 정해 두면 누가 뭘 가져올지 헷갈리지 않아요.<br><button class="btn ghost" data-act="packDefaults" style="margin-top:14px">기본 목록 넣기</button></div>`}`;
+}
+function wirePack(t) {
+  const inp = $('ckInput'); if (!inp) return;
+  if (packFocus) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+  inp.addEventListener('input', () => { packDraft = inp.value; });
+  inp.addEventListener('focus', () => { packFocus = true; });
+  inp.addEventListener('blur', () => { setTimeout(() => { if (document.activeElement?.id !== 'ckInput') packFocus = false; }, 0); });
+  inp.addEventListener('compositionstart', () => { packComposing = true; });
+  inp.addEventListener('compositionend', () => { packComposing = false; packDraft = inp.value; });
+  const add = () => {
+    const text = inp.value.trim(); if (!text) return;
+    inp.value = ''; packDraft = '';
+    const max = S.checks.reduce((m, c) => Math.max(m, packOrder(c)), 0);
+    write(() => setDoc(doc(db, 'trips', t.id, 'checks', uid()), { text, who: S.packMine ? myName(t) : null, done: false, pos: max + 1000, by: S.user.uid, createdAt: Date.now() }));
+    packFocus = true; setTimeout(() => $('ckInput')?.focus(), 50);
+  };
+  $('ckAdd').onclick = add;
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } });
+}
+function addPackDefaults(t) {
+  const list = (t.currency || 'KRW') === 'KRW' ? PACK_LOCAL : PACK_ABROAD;
+  const b = writeBatch(db); const now = Date.now();
+  list.forEach((text, k) => b.set(doc(db, 'trips', t.id, 'checks', uid()), { text, who: null, done: false, pos: (k + 1) * 1000, by: S.user.uid, createdAt: now + k }));
+  write(() => b.commit());
+}
+function packWhoSheet(t, c) {
+  if (!c) return;
+  const people = peopleOf(t);
+  openSheet(`<h2>누가 챙길까요?</h2><p class="small muted" style="margin-top:-6px">${esc(c.text)}</p>
+    <div class="whopick">${people.map((n) => `<button class="pill ${c.who === n ? 'on' : ''}" data-who="${esc(n)}">${nameAvatar(t, n, 20)}${esc(n)}</button>`).join('')}
+      <button class="pill ${c.who ? '' : 'on'}" data-who="">같이 (안 정함)</button></div>`, (sh) => {
+    sh.querySelector('.whopick').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-who]'); if (!b) return;
+      closeSheet(); write(() => updateDoc(doc(db, 'trips', t.id, 'checks', c.id), { who: b.dataset.who || null }));
+    });
+  });
+}
+
+/* ---------- 현지 시간·시차 ---------- */
+function tzOffsetMin(tz, d = new Date()) {
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value]));
+    return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(d.getTime() / 60000) * 60000) / 60000);
+  } catch { return null; }
+}
+function localTimeText(tz) {
+  const off = tzOffsetMin(tz), kr = tzOffsetMin('Asia/Seoul');
+  if (off == null) return '';
+  const now = new Intl.DateTimeFormat('ko-KR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  const diff = off - kr; const h = Math.floor(Math.abs(diff) / 60), m = Math.abs(diff) % 60;
+  const gap = `${h ? h + '시간' : ''}${m ? ` ${m}분` : ''}`.trim();
+  return `🕒 현지 ${now} · ${diff === 0 ? '한국과 같음' : `한국보다 ${gap} ${diff > 0 ? '빠름' : '느림'}`}`;
+}
+function localTimeChip(t) {
+  if (!t.tz || t.tz === 'Asia/Seoul' || tzOffsetMin(t.tz) == null) return '';
+  return `<span class="chip" data-ltime="${esc(t.tz)}">${esc(localTimeText(t.tz))}</span>`;
+}
+setInterval(() => document.querySelectorAll('[data-ltime]').forEach((el) => { el.textContent = localTimeText(el.dataset.ltime); }), 30e3);
+const tzTried = new Set();
+async function ensureTz(t) {
+  if (t.tz || tzTried.has(t.id) || !navigator.onLine) return;
+  tzTried.add(t.id);
+  try {
+    const g = t.geo || (await geocodeCity(t.city).catch(() => null));
+    if (!g) return;
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lng}&timezone=auto&forecast_days=1&daily=weather_code`);
+    const tz = (await r.json()).timezone;
+    if (tz && tzOffsetMin(tz) != null) await updateDoc(doc(db, 'trips', t.id), { tz });
+  } catch (e) { console.warn('tz', e); }
+}
+
+/* ---------- 환율 불러오기 (무료, 키 없음) ---------- */
+async function fetchRate(cur) {
+  if (!cur || cur === 'KRW') return 1;
+  const k = `fx:${cur}:${new Date().toISOString().slice(0, 10)}`;
+  const hit = Number(lsGet(k)); if (hit > 0) return hit;
+  let v = null;
+  try { const j = await (await fetch(`https://open.er-api.com/v6/latest/${cur}`)).json(); v = Number(j?.rates?.KRW) || null; } catch { /* 다음 */ }
+  if (!v) {
+    try { const j = await (await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${cur.toLowerCase()}.json`)).json(); v = Number(j?.[cur.toLowerCase()]?.krw) || null; } catch { /* 실패 */ }
+  }
+  if (v) lsSet(k, String(v));
+  return v;
+}
+/** 환율 입력칸에 오늘 환율 채우기 (단위: 1 또는 100 통화당 원) */
+async function fillRate(input, cur, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '불러오는 중…'; }
+  const v = await fetchRate(cur);
+  if (btn) { btn.disabled = false; btn.textContent = '오늘 환율'; }
+  if (!v) return toast('환율을 못 불러왔어요. 직접 넣어 주세요');
+  input.value = String(Math.round(v * rateUnit(cur) * 100) / 100);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  toast(`${rateUnit(cur)} ${cur} = ${num(Math.round(v * rateUnit(cur)))}원 (오늘 시세, 카드 결제와 조금 달라요)`);
+}
+
+/* ---------- 오프라인 ---------- */
+function paintNet() {
+  const off = !navigator.onLine;
+  document.body.classList.toggle('offline', off);
+  $('netbadge').hidden = !off;
+}
+window.addEventListener('online', () => { paintNet(); if (mapInitP && !mapCtl) mapInitP = null; renderSoon(); });
+window.addEventListener('offline', paintNet);
+// 곧 떠나거나 여행 중인 여행은 데이터를 미리 받아 둠 (오프라인에서도 일정·항공권·QR 보이게)
+const prefetched = new Set();
+function prefetchTrips() {
+  if (!navigator.onLine) return;
+  const today = fmtD(new Date()); const soon = fmtD(new Date(Date.now() + 14 * 864e5));
+  S.trips.filter((t) => t.start && t.start <= soon && (t.end || t.start) >= today && !prefetched.has(t.id)).forEach((t) => {
+    prefetched.add(t.id);
+    ['items', 'flights', 'places', 'checks', 'expenses', 'files'].forEach((c) => getDocs(collection(db, 'trips', t.id, c)).catch(() => {}));
+  });
+}
+
+/* ---------- 보기 전용 공유 링크 (shares/{code}: 로그인 없이 읽기, 목록 조회 불가) ---------- */
+function shareSnapshot(t) {
+  const days = tripDays(t);
+  return {
+    tripId: t.id, name: t.name || '', city: t.city || '', start: t.start || '', end: t.end || '', tz: t.tz || null, days,
+    items: days.flatMap((d) => dayItems(d)).filter((i) => i.kind !== 'memo').map((i) => ({
+      date: i.date, time: i.time || '', title: i.title || '', cat: i.cat || '기타', address: i.address || '',
+      lat: i.lat ?? null, lng: i.lng ?? null, placeId: i.placeId || null, who: i.who || [],
+    })),
+    flights: S.flights.map((f) => ({ from: f.from || '', to: f.to || '', depAt: f.depAt || '', arrAt: f.arrAt || '', airline: f.airline || '', flightNo: f.flightNo || '' }))
+      .sort((a, b) => a.depAt.localeCompare(b.depAt)),
+  };
+}
+const shareSig = new Map(); let shareTimer = null;
+function syncShare(t) {
+  if (!t.shareCode || !S.fresh.items || !S.fresh.flights || !navigator.onLine) return;
+  const snap = shareSnapshot(t); const sig = JSON.stringify(snap);
+  if (shareSig.get(t.shareCode) === sig) return;
+  clearTimeout(shareTimer);
+  shareTimer = setTimeout(() => {
+    shareSig.set(t.shareCode, sig);
+    setDoc(doc(db, 'shares', t.shareCode), { ...snap, updatedAt: Date.now(), by: S.user.uid }).catch((e) => { console.warn('share', e); shareSig.delete(t.shareCode); });
+  }, 3000);
+}
+async function makeShare(t) {
+  const code = t.shareCode || randCode(12);
+  await setDoc(doc(db, 'shares', code), { ...shareSnapshot(t), updatedAt: Date.now(), by: S.user.uid });
+  if (!t.shareCode) await updateDoc(doc(db, 'trips', t.id), { shareCode: code });
+  shareSig.set(code, JSON.stringify(shareSnapshot(t)));
+  return code;
+}
+async function stopShare(t) {
+  if (!t.shareCode) return;
+  await deleteDoc(doc(db, 'shares', t.shareCode)).catch(() => {});
+  await updateDoc(doc(db, 'trips', t.id), { shareCode: null });
+}
+function viewShare() {
+  showMap(false); $('fabhost').innerHTML = ''; $('banner').innerHTML = '';
+  $('hdr').innerHTML = `<h1 class="brand" aria-label="슝">${I.word}</h1><span class="sv-badge">보기 전용</span>`;
+  const sv = S.share;
+  if (!sv) {
+    $('view').innerHTML = '<div class="empty">불러오는 중…</div>';
+    getDoc(doc(db, 'shares', shareCode)).then((d) => { S.share = d.exists() ? d.data() : { missing: true }; viewShare(); })
+      .catch(() => { S.share = { missing: true }; viewShare(); });
+    return;
+  }
+  if (sv.missing) { $('view').innerHTML = '<div class="empty"><b>링크가 꺼졌거나 잘못됐어요</b>공유한 사람에게 다시 받아 주세요.</div>'; return; }
+  const days = sv.days || [];
+  if (!S.day || !days.includes(S.day)) { const today = fmtD(new Date()); S.day = days.includes(today) ? today : days[0]; }
+  const items = (sv.items || []).filter((i) => i.date === S.day);
+  const fl = (sv.flights || []).filter((f) => (f.depAt || '').slice(0, 10) === S.day || (f.arrAt || '').slice(0, 10) === S.day);
+  const gUrl = (i) => (i.placeId ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(i.title)}&query_place_id=${encodeURIComponent(i.placeId)}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(i.lat != null ? `${i.lat},${i.lng}` : `${i.title} ${sv.city || ''}`)}`);
+  $('view').innerHTML = `<div class="wrap">
+    <div class="sv-head"><div class="city">${esc(sv.city || 'TRIP')}</div><h2>${esc(sv.name)}</h2>
+      <div class="tripmeta">${sv.start ? `<span class="chip">${esc(md(sv.start))}${sv.end && sv.end !== sv.start ? ' – ' + esc(md(sv.end)) : ''}</span>` : ''}${localTimeChip(sv)}</div></div>
+    <div class="days">${days.map((d, idx) => `<button class="day ${d === S.day ? 'on' : ''}" data-sday="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}</span></button>`).join('')}</div>
+    ${fl.map((f) => `<div class="sv-row flight"><div class="sv-t">${esc(hm(f.depAt) || '')}</div><div><b>✈️ ${esc(f.from)} → ${esc(f.to)}</b><span>${esc([f.airline, f.flightNo].filter(Boolean).join(' '))}${f.arrAt ? ` · 도착 ${esc(hm(f.arrAt))}` : ''}</span></div></div>`).join('')}
+    ${items.length ? items.map((i) => { const c = ICATS[i.cat] || ICATS.기타; return `<div class="sv-row" style="--cat:${c[1]}"><div class="sv-t">${esc(i.time || '')}</div>
+      <div style="min-width:0"><b>${esc(i.title)}</b>${i.address ? `<span>${esc(i.address)}</span>` : ''}${(i.who || []).length ? `<span>👥 ${esc(i.who.join(', '))}</span>` : ''}</div>
+      <a class="lnk" href="${esc(gUrl(i))}" target="_blank" rel="noopener">지도</a></div>`; }).join('') : (fl.length ? '' : '<div class="empty">이날은 일정이 없어요</div>')}
+    <p class="small muted sv-foot">${sv.updatedAt ? `${esc(new Date(sv.updatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))} 기준 · ` : ''}슝으로 만든 여행 일정이에요</p>
+  </div>`;
+  $('view').querySelectorAll('[data-sday]').forEach((b) => { b.onclick = () => { S.day = b.dataset.sday; viewShare(); }; });
+}
+
 /* ---------------- events ---------------- */
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el || el.closest('.sheet')) return;
@@ -2385,6 +2643,28 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'wishcat': S.wishCat = el.dataset.v; render(); break;
+    case 'wishsort': S.wishSort = el.dataset.v; render(); break;
+    case 'vote': {
+      ev.stopPropagation(); const p = S.places.find((x) => x.id === id); if (!p) break;
+      const on = !!p.votes?.[S.user.uid];
+      p.votes = { ...(p.votes || {}), [S.user.uid]: !on }; if (on) delete p.votes[S.user.uid]; render();
+      write(() => updateDoc(doc(db, 'trips', t.id, 'places', id), { [`votes.${S.user.uid}`]: on ? deleteField() : true }));
+      break;
+    }
+    case 'ckToggle': {
+      ev.stopPropagation(); const c = S.checks.find((x) => x.id === id); if (!c) break;
+      const done = !c.done; c.done = done; render();
+      write(() => updateDoc(doc(db, 'trips', t.id, 'checks', id), { done, doneBy: done ? myName(t) : null }));
+      break;
+    }
+    case 'ckWho': ev.stopPropagation(); packWhoSheet(t, S.checks.find((x) => x.id === id)); break;
+    case 'ckDel': {
+      ev.stopPropagation(); const c = S.checks.find((x) => x.id === id); if (!c) break;
+      askConfirm(`'${c.text}'을(를) 목록에서 지울까요?`, '삭제', () => write(() => deleteDoc(doc(db, 'trips', t.id, 'checks', id))));
+      break;
+    }
+    case 'packMine': S.packMine = el.dataset.v === '1'; render(); break;
+    case 'packDefaults': addPackDefaults(t); break;
     case 'newWish': wishForm(t, null); break;
     case 'editWish': wishForm(t, S.places.find((x) => x.id === id)); break;
     case 'toPlan': toPlanSheet(t, S.places.find((x) => x.id === id)); break;
@@ -2431,3 +2711,4 @@ window.addEventListener('scroll', closeSegPop, { passive: true });
 
 window.addEventListener('scroll', () => $('hdr')?.classList.toggle('scrolled', scrollY > 4), { passive: true });
 render();
+paintNet();
