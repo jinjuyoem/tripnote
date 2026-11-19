@@ -1537,7 +1537,6 @@ function viewFlights() {
       ${(f.qrIds || []).length ? `<div class="qrrow">${f.qrIds.map((q, k) => `<button class="qrthumb" data-act="qrview" data-flight="${esc(f.id)}" data-idx="${k}">${qrCache.get(q) && qrCache.get(q) !== 'loading' ? `<img src="${qrCache.get(q)}" alt="QR ${k + 1}">` : '<span>QR</span>'}</button>`).join('')}
         <button class="btn dark qrbig" data-act="qrview" data-flight="${esc(f.id)}" data-idx="0">📱 체크인 QR 크게 보기</button></div>` : ''}
       <div class="iactions" style="margin-top:10px">
-        ${f.flightNo || f.airline ? `<a class="lnk ckbtn" href="${esc(checkinUrl(f))}" target="_blank" rel="noopener" data-act="checkin" data-id="${esc(f.id)}">🧳 온라인 체크인</a>` : ''}
         ${f.flightNo ? `<button class="lnk live-btn" data-act="checkFlight" data-id="${esc(f.id)}">✈️ 상태 체크하기</button>` : ''}
         <button class="lnk" data-act="editFlight" data-id="${esc(f.id)}">수정</button>
       </div></div>`;
