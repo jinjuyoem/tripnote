@@ -935,3 +935,6 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 .adm-btns{display:flex;gap:8px}.adm-btns .btn{flex:1}
 .adm-row .inp{background:#fff;padding:9px 12px;font-size:14px}
 .btn.small{padding:8px 12px;font-size:13px}
+/* 갈래 단계 이어짐 */
+.fork.more{margin-bottom:6px}
+.fork.cont{margin-top:0}

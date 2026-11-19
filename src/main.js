@@ -724,6 +724,17 @@ function forkLanes(t, grp) {
   }
   return lanes;
 }
+/** 갈래 단계 나누기: 같이 다니는 사람끼리 묶인 칸에 일정이 하나씩만 들어가도록 */
+function forkStages(t, grp) {
+  const stages = []; let cur = [];
+  const clean = (rs) => { const L = forkLanes(t, rs); return rs.every((r) => L.filter((l) => l.rows.includes(r)).length === 1); };
+  for (const r of grp) {
+    if (cur.length && !clean([...cur, r])) { stages.push(cur); cur = []; }
+    cur.push(r);
+  }
+  if (cur.length) stages.push(cur);
+  return stages;
+}
 /** 화면 배치: 같이 다니는 줄 / 갈래 묶음 + 각 구간 */
 function planLayout(t, rows) {
   const blocks = []; const segs = [];
@@ -742,15 +753,23 @@ function planLayout(t, rows) {
     // 갈래 끝나고 처음 만나는 위치 있는 같이 일정 (다음 갈래 전까지)
     let nextStop = null;
     for (let q = j; q < rows.length && !isPartialRow(t, rows[q]); q++) { const s = rowStop(rows[q]); if (s) { nextStop = s; break; } }
-    const lanes = forkLanes(t, grp).map((l) => {
-      const stops = l.rows.map(rowStop).filter(Boolean);
-      const ls = stops.length ? chainSegs([lastCommon, ...stops, nextStop]) : [];
-      segs.push(...ls);
-      const into = new Map(ls.map((s) => [s[1].id, s]));
-      const toNext = nextStop ? ls.find((s) => s[1] === nextStop) : null;
-      return { ...l, into, toNext };
+    // 같이 다니는 사람끼리는 한 칸: 한 일정이 여러 칸에 겹쳐 나오면 거기서 단계를 나눔
+    const stages = forkStages(t, grp);
+    const lastBy = new Map(peopleOf(t).map((p) => [p, lastCommon]));
+    stages.forEach((sg, si) => {
+      const final = si === stages.length - 1;
+      const lanes = forkLanes(t, sg).map((l) => {
+        const stops = l.rows.map(rowStop).filter(Boolean);
+        const start = lastBy.get(l.names[0]) || null;
+        const ls = stops.length ? chainSegs([start, ...stops, final ? nextStop : null]) : [];
+        segs.push(...ls);
+        if (stops.length) l.names.forEach((p) => lastBy.set(p, stops[stops.length - 1]));
+        const into = new Map(ls.map((s) => [s[1].id, s]));
+        const toNext = final && nextStop ? ls.find((s) => s[1] === nextStop) : null;
+        return { ...l, into, toNext };
+      });
+      blocks.push({ kind: 'fork', grp: sg, lanes, next: final ? rows[j] : null, cont: si > 0, more: !final });
     });
-    blocks.push({ kind: 'fork', grp, lanes, next: rows[j] });
     lastCommon = null; // 다음 같이 일정까지는 갈래 칸에서 이동 시간 표시
     k = j;
   }
@@ -842,7 +861,7 @@ function viewPlan(t, days) {
 
 /** 따로 다니는 시간: 사람별 칸 (같은 일정끼리는 한 칸), 칸 안에도 이동 시간 */
 function forkHtml(t, b, pinNo) {
-  const { grp, lanes, next } = b;
+  const { grp, lanes, next, cont, more } = b;
   const times = grp.map((r) => r.time).filter(Boolean);
   const mini = (r) => {
     if (r.kind === 'flight') {
@@ -853,9 +872,9 @@ function forkHtml(t, b, pinNo) {
     return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><span>${no ? `<i class="mno">${no}</i>` : ''}${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}</div>`;
   };
   const nextTitle = next ? (next.kind === 'item' ? (next.i.kind === 'memo' ? '' : next.i.title) : '') : '';
-  return `<div class="fork">
-    <div class="forkhead">↙↘ 따로 다니는 시간${times.length ? ` ${esc(times[0])}${times.length > 1 ? ' – ' + esc(times[times.length - 1]) : ''}` : ''}</div>
-    ${viewAsBtns(t, null)}
+  return `<div class="fork${cont ? ' cont' : ''}${more ? ' more' : ''}">
+    <div class="forkhead">${cont ? '↙↘ 이어서' : '↙↘ 따로 다니는 시간'}${times.length ? ` ${esc(times[0])}${times.length > 1 ? ' – ' + esc(times[times.length - 1]) : ''}` : ''}</div>
+    ${cont ? '' : viewAsBtns(t, null)}
     <div class="lanes" style="grid-template-columns:repeat(${lanes.length},minmax(0,1fr))">
       ${lanes.map((l) => `<div class="lane"><h4><span class="lav">${l.names.map((p) => nameAvatar(t, p, 22)).join('')}</span>${esc(l.names.join('·'))}</h4>
         ${l.rows.length ? l.rows.map((r) => { const s = l.into.get(rowIdOf(r)); return (s ? segRow(t, s[0], s[1], 'sm') : '') + mini(r); }).join('') : '<div class="lane-empty">자유 시간</div>'}
