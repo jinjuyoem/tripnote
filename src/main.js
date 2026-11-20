@@ -182,7 +182,7 @@ async function joinTrip(code) {
 function openTrip(id) {
   S.unsubSub.forEach((f) => f()); S.unsubSub = [];
   S.items = []; S.expenses = []; S.flights = []; S.places = []; S.checks = []; S.fresh = {};
-  S.tripId = id; S.day = null; S.mapAll = false; S.ordering = false; S.viewAs = null; S.wishCat = 'all';
+  S.tripId = id; S.day = null; S.mapAll = false; S.ordering = false; S.viewAs = null; S.wishCat = 'all'; S.wishRoute = null;
   if (id) {
     // includeMetadataChanges: 캐시 내용이 서버와 같아도 '서버 확인됨' 신호를 받으려고 (공유 링크는 서버 확인 후에만 갱신)
     const sub = (name) => onSnapshot(collection(db, 'trips', id, name), { includeMetadataChanges: true }, (s) => {
@@ -1477,6 +1477,17 @@ function viewWish(t) {
       <button class="pill ${S.wishCat === 'all' ? 'on' : ''}" data-act="wishcat" data-v="all">전체 ${all.length}</button>
       ${WCATS.filter((c) => cnt(c)).map((c) => `<button class="pill ${S.wishCat === c ? 'on' : ''}" data-act="wishcat" data-v="${c}">${c} ${cnt(c)}</button>`).join('')}
     </div>
+    ${(() => {
+      // 일정 루트 같이 보기: 좌표 있는 일정이 있는 날만
+      if (!mapsEnabled) return '';
+      const rd = days.map((d, idx) => ({ d, idx })).filter(({ d }) => dayItems(d).some(ll));
+      if (!rd.length) return '';
+      const on = (v) => (S.wishRoute === v ? 'on' : '');
+      return `<div class="wishroute"><span>🗺️ 루트 같이 보기</span>
+        <button class="${S.wishRoute ? '' : 'on'}" data-act="wishroute" data-v="">끄기</button>
+        ${rd.length > 1 ? `<button class="${on('all')}" data-act="wishroute" data-v="all">전체</button>` : ''}
+        ${rd.map(({ d, idx }) => `<button class="${on(d)}" data-act="wishroute" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><i></i>Day ${idx + 1}</button>`).join('')}</div>`;
+    })()}
     ${all.length > 1 ? `<div class="wishsort"><button class="${S.wishSort === 'new' ? 'on' : ''}" data-act="wishsort" data-v="new">최신순</button><button class="${S.wishSort === 'vote' ? 'on' : ''}" data-act="wishsort" data-v="vote">👍 많은 순</button></div>` : ''}
     ${list.length ? list.map((p) => {
       const c = ICATS[p.cat] || ICATS.기타;
@@ -1502,10 +1513,20 @@ async function drawWishMap(t) {
   showMap(true);
   const ctl = await ensureMap(); if (!ctl) return showMap(false);
   const ps = S.places.filter((p) => ll(p) && (S.wishCat === 'all' || (p.cat || '기타') === S.wishCat));
+  const route = S.wishRoute;
   const groups = WCATS.map((c) => ({
-    color: (ICATS[c] || ICATS.기타)[1], path: false,
+    color: (ICATS[c] || ICATS.기타)[1], path: false, scale: route ? 1.15 : 1.05,
     points: ps.filter((p) => (p.cat || '기타') === c).map((p) => ({ lat: p.lat, lng: p.lng, label: c[0], title: p.name })),
   }));
+  // 일자별 루트를 같이 그려서 찜한 곳이 어느 날 동선 근처인지 보기
+  if (route) {
+    const days = tripDays(t);
+    days.forEach((d, idx) => {
+      if (route !== 'all' && route !== d) return;
+      const pts = dayItems(d).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: `Day ${idx + 1} · ${i.title || ''}` }));
+      if (pts.length) groups.unshift({ color: DAYCOLORS[idx % DAYCOLORS.length], path: true, scale: 0.8, points: pts });
+    });
+  }
   lastMapSig = ''; if (!ctl.draw(groups)) centerTrip(ctl, t);
   $('mapToggle').hidden = true; $('routeLink').hidden = true;
 }
@@ -2670,6 +2691,7 @@ document.addEventListener('click', (ev) => {
     }
     case 'wishcat': S.wishCat = el.dataset.v; render(); break;
     case 'wishsort': S.wishSort = el.dataset.v; render(); break;
+    case 'wishroute': S.wishRoute = el.dataset.v || null; render(); document.getElementById('mapwrap')?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); break;
     case 'vote': {
       ev.stopPropagation(); const p = S.places.find((x) => x.id === id); if (!p) break;
       const on = !!p.votes?.[S.user.uid];

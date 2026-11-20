@@ -65,7 +65,7 @@ export async function createMap(el) {
       for (const p of g.points) {
         const pin = new PinElement({
           background: g.color, borderColor: '#ffffff', glyphColor: '#ffffff',
-          glyph: String(p.label ?? ''), scale: 1.05,
+          glyph: String(p.label ?? ''), scale: g.scale || 1.05,
         });
         const mk = new AdvancedMarkerElement({ map, position: p, content: pin.element, title: p.title || '' });
         if (p.onClick) mk.addListener('click', p.onClick);
