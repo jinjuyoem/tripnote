@@ -57,6 +57,7 @@ export async function createMap(el) {
     h.appendChild(document.createTextNode(p.title || ''));
     el.appendChild(h);
     if (p.sub) { const s2 = document.createElement('div'); s2.className = 'mpop-s'; s2.textContent = p.sub; el.appendChild(s2); }
+    if (p.memo) { const m = document.createElement('div'); m.className = 'mpop-m'; m.textContent = p.memo; el.appendChild(m); }
     info.setContent(el); info.open({ map, anchor: mk });
   }
 
