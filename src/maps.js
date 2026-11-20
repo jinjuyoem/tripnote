@@ -35,7 +35,7 @@ function bootstrap() {
 
 export async function createMap(el) {
   if (!mapsEnabled) return null;
-  const [{ Map, Polyline, InfoWindow }, { AdvancedMarkerElement, PinElement }] = await bootstrap();
+  const [{ Map, Polyline, InfoWindow, Circle }, { AdvancedMarkerElement, PinElement }] = await bootstrap();
   const map = new Map(el, {
     mapId: MAP_ID,
     center: { lat: 37.5665, lng: 126.978 },
@@ -102,7 +102,22 @@ export async function createMap(el) {
     if (g) { map.setCenter({ lat: +g.lat, lng: +g.lng }); map.setZoom(11); }
     return g || null;
   }
-  return { map, draw, focus, centerOn, clear };
+  // 내 위치: 파란 점 + 정확도 원 (일정 다시 그려도 안 지워짐)
+  let meMk = null, meCircle = null;
+  function setMe(pos, acc) {
+    if (!pos) { if (meMk) meMk.map = null; if (meCircle) meCircle.setMap(null); meMk = meCircle = null; return; }
+    if (!meMk) {
+      const dot = document.createElement('div'); dot.className = 'medot';
+      meMk = new AdvancedMarkerElement({ map, position: pos, content: dot, title: '내 위치', zIndex: 9999 });
+      meCircle = new Circle({ map, center: pos, radius: acc || 30, strokeOpacity: 0, fillColor: '#2E5BFF', fillOpacity: 0.12, clickable: false });
+    } else { meMk.position = pos; meCircle.setCenter(pos); meCircle.setRadius(acc || 30); }
+  }
+  function centerDist(pos) {
+    const c = map.getCenter(); if (!c || !pos) return Infinity;
+    return google.maps.geometry?.spherical ? google.maps.geometry.spherical.computeDistanceBetween(c, pos)
+      : Math.hypot((c.lat() - pos.lat) * 111000, (c.lng() - pos.lng) * 111000 * Math.cos(pos.lat * Math.PI / 180));
+  }
+  return { map, draw, focus, centerOn, clear, setMe, centerDist };
 }
 
 /** 도시 이름 → 좌표 (구글). 한국 쪽 쏠림을 피하려고 도시·지역 결과만 받음 */

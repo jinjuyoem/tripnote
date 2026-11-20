@@ -77,6 +77,7 @@ document.querySelector('#app').innerHTML = `
   <div id="banner"></div>
   <div id="mapwrap" hidden>
     <div id="map"></div>
+    <button id="meBtn" class="mebtn" aria-label="내 위치 보기"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
     <div class="mapbar">
       <button id="mapToggle" class="mapbtn"></button>
       <a id="routeLink" class="mapbtn" target="_blank" rel="noopener">구글맵 길찾기</a>
@@ -93,6 +94,33 @@ async function ensureMap() {
   return mapInitP;
 }
 $('mapToggle').onclick = () => { S.mapAll = !S.mapAll; render(); };
+
+/* 내 위치: 누르면 켜고 내 위치로, 켜진 상태에서 내 위치가 이미 가운데면 끄기 */
+let meWatch = null, mePos = null, meFirst = false;
+function stopMe() {
+  if (meWatch != null) navigator.geolocation.clearWatch(meWatch);
+  meWatch = null; mePos = null; mapCtl?.setMe(null); $('meBtn').classList.remove('on', 'wait');
+}
+$('meBtn').onclick = async () => {
+  if (!navigator.geolocation) return toast('이 기기에서는 위치를 쓸 수 없어요');
+  const ctl = await ensureMap(); if (!ctl) return;
+  if (meWatch != null) {
+    if (mePos && ctl.centerDist(mePos) > 60) { ctl.focus(mePos); return; }
+    if (!mePos) return;
+    stopMe(); return;
+  }
+  $('meBtn').classList.add('wait'); meFirst = true;
+  meWatch = navigator.geolocation.watchPosition((p) => {
+    mePos = { lat: p.coords.latitude, lng: p.coords.longitude };
+    ctl.setMe(mePos, p.coords.accuracy);
+    $('meBtn').classList.remove('wait'); $('meBtn').classList.add('on');
+    if (meFirst) { meFirst = false; ctl.focus(mePos); }
+  }, (err) => {
+    stopMe();
+    toast(err.code === 1 ? '위치 권한이 꺼져 있어요. 설정에서 위치 접근을 허용해 주세요' : '내 위치를 찾지 못했어요');
+  }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+};
+document.addEventListener('visibilitychange', () => { if (document.hidden && meWatch != null) stopMe(); });
 
 /* ---------------- 비공개 베타 (allowlist) ---------------- */
 // 저장소가 공개라 관리자 이메일은 SHA-256 해시로만 둠 (firestore.rules의 isAdmin()과 같은 값)
