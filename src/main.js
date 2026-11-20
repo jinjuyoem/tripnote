@@ -2066,6 +2066,7 @@ function itemForm(t, item) {
       ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
       <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || item.who || people, true)}</div>` : ''}
       <div class="hint">정산 탭에 바로 반영돼요.</div></div>
+    ${isNew ? '' : '<button type="button" class="towish" data-x="towish">💛 찜으로 옮기기 <span>날짜 미정으로 빼두기</span></button>'}
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh);
     // '누구랑?'을 바꾸면 돈 나눌 사람도 같이 맞춤 (지출이 아직 없을 때)
@@ -2114,7 +2115,35 @@ function itemForm(t, item) {
         else await updateDoc(doc(db, 'trips', t.id, 'items', itemId), data);
       });
     };
+    sh.querySelector('[data-x=towish]')?.addEventListener('click', () => itemToWish(t, item));
     sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${item.title}' 일정을 삭제할까요?${item.expenseId ? ' 연결된 지출도 같이 지워져요.' : ''}`, '삭제', () => write(async () => { if (item.expenseId) await deleteDoc(doc(db, 'trips', t.id, 'expenses', item.expenseId)); await deleteDoc(doc(db, 'trips', t.id, 'items', item.id)); })));
+  });
+}
+
+// 일정 → 찜: 찜에서 왔으면 그 찜을 '추가 전'으로 되돌리고, 아니면 새 찜을 만든 뒤 일정은 지움
+function itemToWish(t, item) {
+  const src = item.fromWish ? S.places.find((p) => p.id === item.fromWish) : null;
+  const exp = item.expenseId ? S.expenses.find((e) => e.id === item.expenseId) : null;
+  askConfirm(`'${item.title}'을(를) 일정에서 빼고 찜으로 옮길까요?${exp ? ' 쓴 돈은 가계부에 그대로 남아요.' : ''}`, '옮기기', async () => {
+    await write(async () => {
+      const b = writeBatch(db);
+      if (src) {
+        const up = src.addedTo?.itemId === item.id ? { addedTo: deleteField() } : {};
+        if (!src.memo && item.memo) up.memo = item.memo;
+        if (src.lat == null && item.lat != null) Object.assign(up, { lat: item.lat, lng: item.lng, address: item.address || '', placeId: item.placeId || null });
+        if (Object.keys(up).length) b.update(doc(db, 'trips', t.id, 'places', src.id), up);
+      } else {
+        b.set(doc(db, 'trips', t.id, 'places', uid()), {
+          name: item.title, cat: WCATS.includes(item.cat) ? item.cat : '기타', memo: item.memo || '', link: item.link || '',
+          lat: item.lat ?? null, lng: item.lng ?? null, address: item.address || '', placeId: item.placeId || null,
+          createdAt: Date.now(), by: S.user.uid,
+        });
+      }
+      if (exp) b.update(doc(db, 'trips', t.id, 'expenses', exp.id), { itemId: null });
+      b.delete(doc(db, 'trips', t.id, 'items', item.id));
+      await b.commit();
+    });
+    toast('찜으로 옮겼어요');
   });
 }
 
