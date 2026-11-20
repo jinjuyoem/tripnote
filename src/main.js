@@ -1388,7 +1388,7 @@ function itemRow(t, i, no, list) {
   if (S.ordering) {
     const k = list.findIndex((x) => x.id === i.id);
     if (i.kind === 'memo') {
-      return `<div class="item ordering memo" data-drag="${esc(i.id)}" style="--cat:${c[1]}"><div class="irow">
+      return `<div class="item ordering memo" data-drag="${esc(i.id)}" style="${memoStyle(i)}"><div class="irow">
       <div class="itime">📝</div><div style="flex:1;min-width:0"><div class="imemo clamp">${esc(i.memo || '')}</div></div>
       <div class="draghandle" aria-label="끌어서 순서 바꾸기">≡</div>
     </div></div>`;
@@ -1400,7 +1400,7 @@ function itemRow(t, i, no, list) {
     </div></div>`;
   }
   if (i.kind === 'memo') {
-    return `<div class="item memo" style="--cat:${c[1]}" data-act="editMemo" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
+    return `<div class="item memo" style="${memoStyle(i)}" data-act="editMemo" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
   }
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" data-lp="${esc(i.id)}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
     ${i.done ? starsHtml(t, i) : ''}<div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
@@ -1733,6 +1733,8 @@ async function openQrViewer(flightId, idx) {
 }
 
 /* ---------- money ---------- */
+const PAY_METHODS = ['카드', '현금'];
+const PAY_ICON = { 카드: '💳', 현금: '💵' };
 function toKRW(t, e) {
   const a = Number(e.amount) || 0;
   return e.cur === 'KRW' ? a : a * (Number(e.rate) || Number(t.rate) || 1);
@@ -1744,17 +1746,19 @@ function viewMoney(t) {
   const byCat = {}; list.forEach((e) => { byCat[e.cat || '기타'] = (byCat[e.cat || '기타'] || 0) + toKRW(t, e); });
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const n = peopleOf(t).length || 1;
+  const byPay = {}; list.forEach((e) => { if (e.pay) byPay[e.pay] = (byPay[e.pay] || 0) + toKRW(t, e); });
+  const payLine = Object.keys(byPay).length ? `<div class="paysum">${PAY_METHODS.filter((p) => byPay[p]).map((p) => `<span>${PAY_ICON[p]} ${p} ${won(byPay[p])}</span>`).join('')}</div>` : '';
   const groups = {}; list.forEach((e) => { (groups[e.date || '날짜 없음'] ||= []).push(e); });
   return `<div class="sum"><div class="lbl">총 지출 ${t.currency && t.currency !== 'KRW' ? `· 기본 환율 ${esc(rateLabel(t.currency, t.rate))}` : ''}</div>
     <div class="big">${won(total)}</div>
     <div class="bars">${total ? cats.map(([c, v]) => `<div style="width:${(v / total) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
-    <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / n)}</span>` : ''}</div></div>
+    <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / n)}</span>` : ''}</div>${payLine}</div>
   ${list.length ? Object.entries(groups).map(([d, es]) => `<div class="dategrp">${esc(d.includes('-') ? md(d) : d)} · ${won(es.reduce((s, e) => s + toKRW(t, e), 0))}</div>
     ${es.map((e) => {
       const col = ECATS[e.cat] || '#888'; const local = e.cur !== 'KRW' && t.currency && t.currency !== 'KRW';
       return `<button class="exp" data-act="editExp" data-id="${esc(e.id)}">
         <div class="ico" style="background:${col}1F;color:${col}">${CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
-        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${esc(e.payer || '?')} 결제 · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
+        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제 · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
         <div class="amt">${local ? `${num(e.amount)} ${esc(t.currency)}<small>${won(toKRW(t, e))}</small>` : won(e.amount)}</div></button>`;
     }).join('')}`).join('')
     : '<div class="empty"><b>기록된 지출이 없어요</b>쓴 돈을 바로바로 적어 두면 정산이 쉬워요.</div>'}`;
@@ -2064,19 +2068,36 @@ function itemForm(t, item) {
 }
 
 /* memo (장소·시간 없이 메모만) */
+// 메모 색: [바탕, 테두리·점, 글자]
+const MEMO_COLORS = {
+  yellow: ['#FFF8D6', '#C9A227', '#4A4128'], pink: ['#FFE8EE', '#E0738F', '#5A2F3B'], mint: ['#E3F6EC', '#3FA772', '#21432F'],
+  blue: ['#E6EEFF', '#2E5BFF', '#1F2E57'], purple: ['#F0E8FF', '#8A5CF0', '#3A2A5C'], gray: ['#EEF0F3', '#8B95A1', '#333D4B'],
+};
+const memoCol = (i) => MEMO_COLORS[i.color] || MEMO_COLORS.yellow;
+const memoStyle = (i) => { const [bg, line, ink] = memoCol(i); return `--cat:${line};--mbg:${bg};--mink:${ink}`; };
 function memoForm(t, m) {
   const isNew = !m; const days = tripDays(t);
-  m = m || { date: S.day, memo: '' };
+  m = m || { date: S.day, memo: '', color: localStorage.getItem('memoColor') || 'yellow' };
+  let color = MEMO_COLORS[m.color] ? m.color : 'yellow';
   openSheet(`<h2>${isNew ? '메모 추가' : '메모 수정'}</h2>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" rows="5" placeholder="예: 숙소 체크인 15시, 짐 맡기기 / 환전 잊지 말기">${esc(m.memo)}</textarea></label>
+    <div class="f"><span class="flbl">색</span><div class="covpick" id="memoPick">${Object.entries(MEMO_COLORS).map(([k, [bg, line]]) => `<button type="button" class="cov ${k === color ? 'on' : ''}" data-mc="${k}" style="background:${bg};box-shadow:inset 0 0 0 1.5px ${line}55" aria-label="메모 색 ${k}"></button>`).join('')}</div></div>
     <label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === m.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
     <p class="small muted" style="margin:-4px 0 12px">맨 아래에 붙어요. '순서 바꾸기'로 끌어서 원하는 위치로 옮길 수 있어요.</p>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh);
     setTimeout(() => sh.querySelector('[name=memo]').focus(), 50);
+    const ta = sh.querySelector('[name=memo]');
+    const paint = () => { const [bg, line, ink] = MEMO_COLORS[color]; ta.style.background = bg; ta.style.borderColor = line + '66'; ta.style.color = ink; };
+    paint();
+    sh.querySelector('#memoPick').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-mc]'); if (!b) return; color = b.dataset.mc;
+      sh.querySelectorAll('[data-mc]').forEach((x) => x.classList.toggle('on', x === b)); paint();
+    });
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('memo')) return toast('메모를 적어 주세요');
-      const data = { kind: 'memo', memo: v('memo'), date: v('date'), title: '', time: '' };
+      const data = { kind: 'memo', memo: v('memo'), date: v('date'), title: '', time: '', color };
+      try { localStorage.setItem('memoColor', color); } catch {}
       if (isNew || data.date !== m.date) data.pos = insertPos(data.date, '', m.id);
       closeSheet(); S.day = data.date;
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'items', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
@@ -2225,7 +2246,7 @@ function flightForm(t, f) {
 function expForm(t, e) {
   const isNew = !e; const people = peopleOf(t);
   const today = fmtD(new Date()); const days = tripDays(t);
-  e = e || { title: '', amount: '', cur: t.currency || 'KRW', payer: people.includes(myName(t)) ? myName(t) : people[0], split: [...people], date: days.includes(today) ? today : (days[0].startsWith('day') ? today : days[0]), cat: '식비' };
+  e = e || { title: '', amount: '', cur: t.currency || 'KRW', payer: people.includes(myName(t)) ? myName(t) : people[0], split: [...people], date: days.includes(today) ? today : (days[0].startsWith('day') ? today : days[0]), cat: '식비', pay: localStorage.getItem('payMethod') || '카드' };
   const curs = [...new Set([t.currency || 'KRW', 'KRW'])];
   openSheet(`<h2>${isNew ? '지출 추가' : '지출 수정'}</h2>
     <label class="f"><span>내용</span><input class="inp" name="title" value="${esc(e.title)}" placeholder="예: 이치란 라멘"></label>
@@ -2233,6 +2254,7 @@ function expForm(t, e) {
       <label class="f"><span>통화</span>${pills('cur', curs, e.cur || curs[0])}</label></div>
     <div id="rateBox"></div>
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ECATS), e.cat || '기타')}</label>
+    <label class="f"><span>결제 수단</span>${pills('pay', PAY_METHODS, e.pay || '')}</label>
     <label class="f"><span>결제한 사람</span>${pills('payer', people, e.payer)}</label>
     <label class="f"><span>나눌 사람</span>${pills('split', people, e.split || people, true)}</label>
     <label class="f"><span>날짜</span><input class="inp" type="date" name="date" value="${esc(e.date)}"></label>
@@ -2268,7 +2290,8 @@ function expForm(t, e) {
       if (!v('title') || !(amount > 0)) return toast('내용과 금액을 확인해 주세요');
       const split = pillVal(sh, 'split'); if (!split.length) return toast('나눌 사람을 한 명 이상 골라 주세요');
       const cur = curNow(); const rIn = Number(sh.querySelector('[name=rate]')?.value);
-      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
+      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', pay: pillVal(sh, 'pay')[0] || null, payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
+      try { if (data.pay) localStorage.setItem('payMethod', data.pay); } catch {}
       closeSheet();
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
       else await write(() => updateDoc(doc(db, 'trips', t.id, 'expenses', e.id), data));
