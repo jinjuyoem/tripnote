@@ -1418,6 +1418,8 @@ function itemRow(t, i, no, list) {
 }
 
 let lastMapSig = '';
+// 지도 핀 팝업 아랫줄: Day · 시간 · 주소
+const pinSub = (day, i) => [day, i.time, i.address].filter(Boolean).join(' · ');
 // 일정이 없을 때 여행 도시로 지도 맞추기 (찾은 좌표는 trip.geo에 저장해서 다음부터 API 없이)
 // 구글 지오코딩은 한국(region KR) 쪽으로 쏠려서 '상하이' 같은 이름이 국내 장소로 잡힐 수 있음 → 도시 DB(Open-Meteo) 먼저
 async function centerTrip(ctl, t) {
@@ -1441,13 +1443,13 @@ async function drawPlanMap(t, days) {
   if (S.mapAll) {
     groups = days.map((d, idx) => ({
       color: DAYCOLORS[idx % DAYCOLORS.length], path: true,
-      points: dayItems(d).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: i.title })),
+      points: dayItems(d).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: i.title, sub: pinSub(`Day ${idx + 1}`, i) })),
     }));
   } else {
     const idx = days.indexOf(S.day);
     groups = [{
       color: DAYCOLORS[Math.max(0, idx) % DAYCOLORS.length], path: true,
-      points: dayItems(S.day).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: i.title })),
+      points: dayItems(S.day).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: i.title, sub: pinSub('', i) })),
     }];
   }
   const sig = JSON.stringify([t.id, groups]);
@@ -1516,14 +1518,14 @@ async function drawWishMap(t) {
   const route = S.wishRoute;
   const groups = WCATS.map((c) => ({
     color: (ICATS[c] || ICATS.기타)[1], path: false, scale: route ? 1.15 : 1.05,
-    points: ps.filter((p) => (p.cat || '기타') === c).map((p) => ({ lat: p.lat, lng: p.lng, label: c[0], title: p.name })),
+    points: ps.filter((p) => (p.cat || '기타') === c).map((p) => ({ lat: p.lat, lng: p.lng, label: c[0], title: p.name, sub: [`${CAT_EMOJI[c] || ''} ${c} 찜`, votesOf(p).length ? `👍 ${votesOf(p).length}` : '', p.address].filter(Boolean).join(' · ') })),
   }));
   // 일자별 루트를 같이 그려서 찜한 곳이 어느 날 동선 근처인지 보기
   if (route) {
     const days = tripDays(t);
     days.forEach((d, idx) => {
       if (route !== 'all' && route !== d) return;
-      const pts = dayItems(d).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: `Day ${idx + 1} · ${i.title || ''}` }));
+      const pts = dayItems(d).filter(ll).map((i, k) => ({ lat: i.lat, lng: i.lng, label: k + 1, title: i.title || '', sub: pinSub(`Day ${idx + 1}`, i) }));
       if (pts.length) groups.unshift({ color: DAYCOLORS[idx % DAYCOLORS.length], path: true, scale: 0.8, points: pts });
     });
   }

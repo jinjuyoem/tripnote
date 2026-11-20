@@ -35,7 +35,7 @@ function bootstrap() {
 
 export async function createMap(el) {
   if (!mapsEnabled) return null;
-  const [{ Map, Polyline }, { AdvancedMarkerElement, PinElement }] = await bootstrap();
+  const [{ Map, Polyline, InfoWindow }, { AdvancedMarkerElement, PinElement }] = await bootstrap();
   const map = new Map(el, {
     mapId: MAP_ID,
     center: { lat: 37.5665, lng: 126.978 },
@@ -47,6 +47,18 @@ export async function createMap(el) {
   });
   let markers = [];
   let lines = [];
+  // 핀 누르면 지도 안에서 뜨는 작은 팝업
+  const info = new InfoWindow({ headerDisabled: true, disableAutoPan: false, pixelOffset: new google.maps.Size(0, -4) });
+  map.addListener('click', () => info.close());
+  function popup(mk, p, color) {
+    const el = document.createElement('div'); el.className = 'mpop';
+    const h = document.createElement('div'); h.className = 'mpop-t';
+    if (p.label !== undefined && p.label !== '') { const b = document.createElement('i'); b.textContent = String(p.label); b.style.background = color; h.appendChild(b); }
+    h.appendChild(document.createTextNode(p.title || ''));
+    el.appendChild(h);
+    if (p.sub) { const s2 = document.createElement('div'); s2.className = 'mpop-s'; s2.textContent = p.sub; el.appendChild(s2); }
+    info.setContent(el); info.open({ map, anchor: mk });
+  }
 
   function clear() {
     markers.forEach((m) => (m.map = null));
@@ -58,7 +70,7 @@ export async function createMap(el) {
    * groups: [{ color, points: [{lat,lng,label,title,onClick}] , path: bool }]
    */
   function draw(groups) {
-    clear();
+    clear(); info.close();
     const bounds = new google.maps.LatLngBounds();
     let n = 0;
     for (const g of groups) {
@@ -68,7 +80,7 @@ export async function createMap(el) {
           glyph: String(p.label ?? ''), scale: g.scale || 1.05,
         });
         const mk = new AdvancedMarkerElement({ map, position: p, content: pin.element, title: p.title || '' });
-        if (p.onClick) mk.addListener('click', p.onClick);
+        mk.addListener('click', () => { popup(mk, p, g.color); if (p.onClick) p.onClick(); });
         markers.push(mk); bounds.extend(p); n++;
       }
       if (g.path && g.points.length > 1) {

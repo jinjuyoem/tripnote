@@ -1035,3 +1035,10 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 .wishroute button i{width:8px;height:8px;border-radius:50%;background:var(--dc)}
 .wishroute button.on{background:var(--ink);color:#fff}
 .wishroute button.on i{box-shadow:0 0 0 1.5px #fff}
+/* 지도 핀 팝업 */
+.gm-style .gm-style-iw-c{padding:0!important;border-radius:14px!important;box-shadow:0 6px 20px rgba(0,20,60,.18)!important}
+.gm-style .gm-style-iw-d{overflow:auto!important;padding:0!important}
+.mpop{padding:10px 12px;max-width:220px;font-family:inherit}
+.mpop-t{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink,#191F28);line-height:1.35}
+.mpop-t i{flex:none;min-width:18px;height:18px;padding:0 4px;border-radius:9px;color:#fff;font-style:normal;font-size:11px;display:grid;place-items:center}
+.mpop-s{font-size:11px;color:var(--ink2,#4E5968);margin-top:4px;line-height:1.4;word-break:keep-all}
