@@ -175,8 +175,9 @@ export async function geocodeAirport(code) {
   return null;
 }
 
-/** 두 지점 사이 거리·시간 (Routes API). mode: WALK | TRANSIT | DRIVE | BICYCLE */
-export async function computeRoute(from, to, mode, timeHHMM) {
+/** 두 지점 사이 거리·시간 (Routes API). mode: WALK | TRANSIT | DRIVE | BICYCLE
+ * opt: { time:'HH:MM', date:'YYYY-MM-DD'(그날 요일 기준), offsetMin: 현지 UTC 오프셋(분) } */
+export async function computeRoute(from, to, mode, opt = {}) {
   if (!mapsEnabled) return null;
   const body = {
     origin: { location: { latLng: { latitude: from.lat, longitude: from.lng } } },
@@ -184,26 +185,54 @@ export async function computeRoute(from, to, mode, timeHHMM) {
     travelMode: mode, languageCode: 'ko',
   };
   if (mode === 'DRIVE') body.routingPreference = 'TRAFFIC_UNAWARE';
-  if (mode === 'TRANSIT') {
-    // 지금 시각(새벽 등) 기준이면 대중교통이 없다고 나와서, 내일 같은 시각(없으면 낮 12시) 기준으로 조회
-    // 현지 시각 → UTC는 경도로 대략 환산 (15도 = 1시간)
-    const [hh, mm] = (timeHHMM || '12:00').split(':').map(Number);
-    const offsetH = Math.round(from.lng / 15);
-    const d = new Date(); d.setUTCDate(d.getUTCDate() + 1);
-    d.setUTCHours(hh - offsetH, mm || 0, 0, 0);
-    if (d < new Date(Date.now() + 3600e3)) d.setUTCDate(d.getUTCDate() + 1);
-    body.departureTime = d.toISOString();
-  }
+  if (mode === 'TRANSIT') body.departureTime = transitDeparture(from, opt);
+  const mask = mode === 'TRANSIT'
+    ? 'routes.distanceMeters,routes.duration,routes.legs.steps.travelMode,routes.legs.steps.staticDuration,routes.legs.steps.transitDetails.stopDetails'
+    : 'routes.distanceMeters,routes.duration';
   const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY, 'X-Goog-FieldMask': mask },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error('routes ' + r.status);
   const j = await r.json();
   const rt = j.routes?.[0];
   if (!rt) return { none: true };
-  return { meters: rt.distanceMeters || 0, secs: parseInt(rt.duration, 10) || 0 };
+  const secs = mode === 'TRANSIT' ? transitSecs(rt) : parseInt(rt.duration, 10) || 0;
+  return { meters: rt.distanceMeters || 0, secs };
+}
+
+// 대중교통 조회 시각: 그 일정 날짜와 같은 요일, 같은 현지 시각 중 가장 가까운 미래 (시간표는 먼 미래·과거가 없어서)
+function transitDeparture(from, { time, date, offsetMin } = {}) {
+  const [hh, mm] = (time || '12:00').split(':').map(Number);
+  const off = offsetMin != null ? offsetMin : Math.round(from.lng / 15) * 60; // tz 모르면 경도로 대략
+  const want = date ? new Date(date + 'T00:00:00Z').getUTCDay() : null;
+  const minAt = Date.now() + 30 * 60e3;
+  const now = new Date();
+  for (let i = 0; i < 15; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + i, hh, mm || 0) - off * 60e3);
+    const localDay = new Date(d.getTime() + off * 60e3).getUTCDay();
+    if (d.getTime() < minAt) continue;
+    if (want == null || localDay === want) return d.toISOString();
+  }
+  return new Date(minAt + 86400e3).toISOString();
+}
+
+// 구글 대중교통 시간은 '조회 시각부터'라 첫 차 기다리는 시간이 들어감 → 구글맵 앱처럼 출발해야 할 때부터 계산
+function transitSecs(rt) {
+  const total = parseInt(rt.duration, 10) || 0;
+  const steps = (rt.legs || []).flatMap((l) => l.steps || []);
+  const tIdx = steps.map((s, i) => (s.transitDetails?.stopDetails ? i : -1)).filter((i) => i >= 0);
+  if (!tIdx.length) return total;
+  const sd = (s) => parseInt(s.staticDuration, 10) || 0;
+  const first = steps[tIdx[0]].transitDetails.stopDetails;
+  const last = steps[tIdx[tIdx.length - 1]].transitDetails.stopDetails;
+  const dep = Date.parse(first.departureTime), arr = Date.parse(last.arrivalTime);
+  if (!dep || !arr || arr <= dep) return total;
+  const before = steps.slice(0, tIdx[0]).reduce((a, s) => a + sd(s), 0);
+  const after = steps.slice(tIdx[tIdx.length - 1] + 1).reduce((a, s) => a + sd(s), 0);
+  const secs = before + Math.round((arr - dep) / 1000) + after;
+  return secs > 0 && secs <= total ? secs : total;
 }
 
 /** 장소 검색창을 container에 붙이고, 고르면 onPick({name,address,lat,lng,placeId})

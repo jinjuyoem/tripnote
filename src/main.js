@@ -1069,7 +1069,7 @@ async function openRecap(t) {
         const mode = segMode(t, b);
         if (segResult(a, b, mode)) continue;
         const key = segKey(a, b, mode);
-        jobs.push(routeFor(a, b, mode).then((res) => { segCache.set(key, { ...res, key }); saveStop(t, b, { [b._mk]: { ...res, key } }); putRoute(t, key, res); }).catch(() => {}));
+        jobs.push(routeFor(t, a, b, mode).then((res) => { segCache.set(key, { ...res, key }); saveStop(t, b, { [b._mk]: { ...res, key } }); putRoute(t, key, res); }).catch(() => {}));
         if (jobs.length >= 40) break;
       }
     }
@@ -1236,7 +1236,8 @@ const WALK_LIMIT = 30 * 60;
 const segMode = (_t, i) => i.moveMode || 'auto';
 // 구간 키: 좌표 + 수단만 (일정 순서가 바뀌어도 같은 두 지점이면 다시 계산 안 함)
 const c5 = (x) => Number(x).toFixed(5);
-const segKey = (from, to, mode) => [c5(from.lat), c5(from.lng), c5(to.lat), c5(to.lng), mode].join('|');
+// 'r2' = 대중교통 대기시간 빼고 요일·시차 맞춘 계산 (예전 값은 다시 계산)
+const segKey = (from, to, mode) => [c5(from.lat), c5(from.lng), c5(to.lat), c5(to.lng), mode, ...(mode === 'auto' || mode === 'transit' ? ['r2'] : [])].join('|');
 const oldSegKey = (from, to, mode) => [from.id, from.lat, from.lng, to.lat, to.lng, mode].join('|'); // 예전에 저장된 결과도 재사용
 const segCache = new Map(); // key -> {meters,secs,used} | {none} | 'loading' | {err}
 // 여행 전체가 같이 쓰는 경로 결과 (trips/{id}/routes/{key}). 동행인이 이미 계산한 구간은 API 안 부름
@@ -1283,7 +1284,7 @@ function segResult(from, to, mode) {
   const k = segKey(from, to, mode);
   if (segCache.has(k)) return segCache.get(k);
   const m = to.move; // 저장해 둔 계산 결과 재사용 (API 호출 아끼기)
-  if (m && (m.key === k || m.key === oldSegKey(from, to, mode))) { segCache.set(k, m); return m; }
+  if (m && (m.key === k || (!k.endsWith('|r2') && m.key === oldSegKey(from, to, mode)))) { segCache.set(k, m); return m; }
   const g = routeStore.map.get(k);
   if (g) { segCache.set(k, g); return g; }
   return null;
@@ -1300,8 +1301,9 @@ function segText(from, to, mode) {
   const note = r.transitNone ? ' <span class="muted">(대중교통 시간 미제공 → 길찾기)</span>' : '';
   return `<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}${note}`;
 }
-async function routeFor(from, to, mode) {
-  const when = from.time || to.time;
+async function routeFor(t, from, to, mode) {
+  const date = from.date || to.date || t.start || null;
+  const when = { time: from.time || to.time, date, offsetMin: t.tz ? tzOffsetMin(t.tz, date ? new Date(date + 'T12:00:00Z') : new Date()) : null };
   if (mode !== 'auto') {
     const r = await computeRoute(from, to, MOVES[mode][2], when);
     return r?.none ? { none: true } : { ...r, used: mode };
@@ -1349,7 +1351,7 @@ async function fillSegments(t) {
       });
       refreshDaySum();
     };
-    routeFor(from, to, mode).then((res) => {
+    routeFor(t, from, to, mode).then((res) => {
       segCache.set(key, { ...res, key });
       saveStop(t, to, { [to._mk]: { ...res, key } });
       putRoute(t, key, res);
