@@ -2220,7 +2220,8 @@ function memoForm(t, m) {
     <div class="f"><span class="flbl">색</span><div class="covpick" id="memoPick">${Object.entries(MEMO_COLORS).map(([k, [bg, line]]) => `<button type="button" class="cov ${k === color ? 'on' : ''}" data-mc="${k}" style="background:${bg};box-shadow:inset 0 0 0 1.5px ${line}55" aria-label="메모 색 ${k}"></button>`).join('')}</div></div>
     <label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === m.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
     <p class="small muted" style="margin:-4px 0 12px">맨 아래에 붙어요. '순서 바꾸기'로 끌어서 원하는 위치로 옮길 수 있어요.</p>
-    <div class="spendbox"><span class="flbl">💸 쓴 돈 (가계부에 자동 기록)</span>
+    <button type="button" class="lnk addspend" data-x="addspend" ${linked ? 'hidden' : ''}>💸 쓴 돈 가계부에 기록하기</button>
+    <div class="spendbox" id="memoSpend" ${linked ? '' : 'hidden'}><span class="flbl">💸 쓴 돈 (가계부에 자동 기록)</span>
       <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || spCurs[0])}</div>
       <div id="spendMore" ${linked ? '' : 'hidden'}>
         <label class="f" style="margin-top:8px"><span>가계부에 적을 이름</span><input class="inp" name="stitle" value="${esc(linked?.title || '')}" placeholder="비우면 메모 첫 줄"></label>
@@ -2233,7 +2234,10 @@ function memoForm(t, m) {
     wirePills(sh); const v = fval(sh);
     const spendIn = sh.querySelector('[name=spend]');
     spendIn.addEventListener('input', () => { if (Number(spendIn.value) > 0) sh.querySelector('#spendMore').hidden = false; });
-    setTimeout(() => sh.querySelector('[name=memo]').focus(), 50);
+    sh.querySelector('[data-x=addspend]').addEventListener('click', (e) => { e.currentTarget.hidden = true; sh.querySelector('#memoSpend').hidden = false; spendIn.focus(); });
+    // 시트 올라오는 애니메이션 끝난 뒤에 포커스 (애니메이션 중에 포커스하면 아이폰에서 커서 위치·한글 입력이 어긋남)
+    { let done = false; const f = () => { if (done) return; done = true; sh.querySelector('[name=memo]').focus({ preventScroll: true }); };
+      sh.addEventListener('animationend', f, { once: true }); setTimeout(f, 350); }
     const ta = sh.querySelector('[name=memo]');
     const paint = () => { const [bg, line, ink] = MEMO_COLORS[color]; ta.style.background = bg; ta.style.borderColor = line + '66'; ta.style.color = ink; };
     paint();
