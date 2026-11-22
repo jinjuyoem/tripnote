@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // 날씨: 10일 이내는 구글 날씨 예보, 그 이후 날짜는 작년 같은 날 실제 날씨(참고용)
 const KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -54,6 +55,7 @@ export async function tripWeather(geo, days) {
   // 1) 예보 (오늘부터 10일)
   if (KEY) {
     try {
+      bump('wx');
       const r = await withTimeout(fetch(`https://weather.googleapis.com/v1/forecast/days:lookup?key=${KEY}&location.latitude=${geo.lat}&location.longitude=${geo.lng}&days=10&pageSize=10&languageCode=ko`));
       const j = await r.json();
       for (const f of j.forecastDays || []) {

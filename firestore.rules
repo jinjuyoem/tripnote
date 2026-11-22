@@ -49,6 +49,13 @@ service cloud.firestore {
       allow delete: if allowed() && isMember(resource.data.tripId);
     }
 
+    // 사용자별 API 호출 수(앱이 셈): 본인 것만 쓰기, 관리자만 보기
+    match /usage/{month}/users/{uid} {
+      allow read: if isAdmin();
+      allow create, update: if allowed() && request.auth.uid == uid
+                            && request.resource.data.keys().hasOnly(['name', 'email', 'at', 'c']);
+    }
+
     // 프로필(이름·사진): 로그인한 사람은 보기, 본인만 수정
     match /users/{uid} {
       allow read: if allowed();

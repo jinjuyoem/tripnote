@@ -7,7 +7,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
-  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs, deleteField,
+  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs, deleteField, increment,
 } from 'firebase/firestore';
 
 const env = import.meta.env;
@@ -68,5 +68,5 @@ export const deleteMe = () => deleteUser(auth.currentUser);
 
 export {
   collection, doc, query, where, onSnapshot, setDoc, updateDoc, deleteDoc,
-  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs, deleteField,
+  getDoc, arrayUnion, serverTimestamp, writeBatch, getDocs, deleteField, increment,
 };

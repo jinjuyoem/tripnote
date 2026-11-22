@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // 구글맵 로더 + 지도/핀/동선/장소검색 도우미
 const KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
@@ -36,6 +37,7 @@ function bootstrap() {
 export async function createMap(el) {
   if (!mapsEnabled) return null;
   const [{ Map, Polyline, InfoWindow, Circle }, { AdvancedMarkerElement, PinElement }] = await bootstrap();
+  bump('map');
   const map = new Map(el, {
     mapId: MAP_ID,
     center: { lat: 37.5665, lng: 126.978 },
@@ -127,13 +129,13 @@ export async function geocodeCityG(name) {
   const ok = (types = []) => types.some((x) => ['locality', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'colloquial_area'].includes(x));
   try {
     const { Geocoder } = await google.maps.importLibrary('geocoding');
-    const { results } = await new Geocoder().geocode({ address: name });
+    bump('geo'); const { results } = await new Geocoder().geocode({ address: name });
     const r = (results || []).find((x) => ok(x.types));
     if (r) return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() };
   } catch { /* 장소 검색으로 */ }
   try {
     const { Place } = await google.maps.importLibrary('places');
-    const { places } = await Place.searchByText({ textQuery: name, includedType: 'locality', fields: ['location'], maxResultCount: 1 });
+    bump('text'); const { places } = await Place.searchByText({ textQuery: name, includedType: 'locality', fields: ['location'], maxResultCount: 1 });
     const loc = places?.[0]?.location;
     if (loc) return { lat: loc.lat(), lng: loc.lng() };
   } catch { /* 무시 */ }
@@ -162,13 +164,13 @@ export async function geocodeAirport(code) {
   await bootstrap();
   try {
     const { Geocoder } = await google.maps.importLibrary('geocoding');
-    const { results } = await new Geocoder().geocode({ address: `${code} airport` });
+    bump('geo'); const { results } = await new Geocoder().geocode({ address: `${code} airport` });
     const r = results?.[0];
     if (r) return { lat: r.geometry.location.lat(), lng: r.geometry.location.lng(), code };
   } catch (e) { console.warn('geocode 실패, 장소 검색으로 다시 시도', e); }
   try {
     const { Place } = await google.maps.importLibrary('places');
-    const { places } = await Place.searchByText({ textQuery: `${code} airport`, fields: ['location'], maxResultCount: 1 });
+    bump('text'); const { places } = await Place.searchByText({ textQuery: `${code} airport`, fields: ['location'], maxResultCount: 1 });
     const loc = places?.[0]?.location;
     if (loc) return { lat: loc.lat(), lng: loc.lng(), code };
   } catch (e) { console.warn('공항 위치를 못 찾음', code, e); }
@@ -194,6 +196,7 @@ export async function computeRoute(from, to, mode, opt = {}) {
     headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY, 'X-Goog-FieldMask': mask },
     body: JSON.stringify(body),
   });
+  bump('route');
   if (!r.ok) throw new Error('routes ' + r.status);
   const j = await r.json();
   const rt = j.routes?.[0];
@@ -260,8 +263,9 @@ export async function mountPlaceSearch(container, onPick, near) {
       const req = { input: q, language: 'ko', sessionToken: token };
       if (near) req.locationBias = near;
       let res;
+      bump('ac');
       try { res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
-      catch (e) { if (!near || /quota|RESOURCE_EXHAUSTED|429/i.test(String(e?.message || e))) throw e; delete req.locationBias; res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
+      catch (e) { if (!near || /quota|RESOURCE_EXHAUSTED|429/i.test(String(e?.message || e))) throw e; delete req.locationBias; bump('ac'); res = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req); }
       if (my !== seq) return;
       items = (res.suggestions || []).map((x) => x.placePrediction).filter(Boolean);
       acCache.set(q, items); if (acCache.size > 100) acCache.delete(acCache.keys().next().value);
@@ -281,6 +285,7 @@ export async function mountPlaceSearch(container, onPick, near) {
     try {
       const place = pred.toPlace();
       // displayName을 받으면 Pro 요금(1천 건당 $17)이라, 이름은 검색 목록 글자를 쓰고 주소·좌표만 받음 (Essentials, $5)
+      bump('place');
       await place.fetchFields({ fields: ['formattedAddress', 'location'] });
       token = new AutocompleteSessionToken();
       onPick({ name: pred.mainText?.text || pred.text?.text || inp.value, address: place.formattedAddress || '', lat: place.location?.lat(), lng: place.location?.lng(), placeId: place.id });

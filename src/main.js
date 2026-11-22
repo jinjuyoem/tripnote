@@ -6,6 +6,7 @@ import {
 } from './firebase.js';
 import { createMap, mountPlaceSearch, mapsEnabled, computeRoute, geocodeAirport, geocodeCityG } from './maps.js';
 import { tripWeather, geocodeCity } from './weather.js';
+import { bump, setMeterUser, UMETERS, ptMonth } from './meter.js';
 import { openTimeWheel, timeField, wireTimeFields } from './timewheel.js';
 import {
   esc, uid, randCode, won, num, md, hm, parseD, fmtD, tripDays, dday,
@@ -141,7 +142,7 @@ function stopData() {
 
 /* ---------------- auth ---------------- */
 watchAuth(async (u) => {
-  S.user = u; S.authReady = true;
+  S.user = u; S.authReady = true; setMeterUser(u);
   stopData(); S.unsubAccess?.(); S.unsubAccess = null;
   S.access = null; S.isAdmin = false; S.requested = false;
   if (u && localStorage.getItem(DELETE_FLAG)) { localStorage.removeItem(DELETE_FLAG); render(); return doDeleteAccount(); }
@@ -333,7 +334,7 @@ document.addEventListener('click', (e) => {
 
 /** API 사용량 (관리자): /api/usage → 오늘 상한 대비 · 이번 달 무료분 대비 */
 let usageCache = null; // { at(ms), data }
-let admTab = 'users'; // 관리자 시트 탭: users | usage
+let admTab = 'users'; // 관리자 시트 탭: users | usage | people
 async function loadUsage(force) {
   if (!force && usageCache && Date.now() - usageCache.at < 60e3) return usageCache.data;
   const tok = await idToken();
@@ -372,6 +373,37 @@ async function paintUsage(box, force) {
   }
 }
 
+/** 사용자별 (관리자): 앱이 직접 센 호출 수 usage/{월}/users/{uid} → 정가 기준 추정 금액 */
+let peopleMonth = 0; // 0 = 이번 달, -1 = 지난달
+async function paintPeople(box, names) {
+  if (!box) return;
+  const now = new Date(); const d = new Date(now.getFullYear(), now.getMonth() + peopleMonth, 15);
+  const month = ptMonth(peopleMonth ? d : now);
+  box.innerHTML = '<p class="small muted">불러오는 중…</p>';
+  let rows = [];
+  try { rows = (await getDocs(collection(db, 'usage', month, 'users'))).docs.map((x) => ({ id: x.id, ...x.data() })); }
+  catch (e) { console.error(e); box.innerHTML = `<p class="small muted">${e?.code === 'permission-denied' ? 'Firebase 콘솔에 새 규칙(usage)을 게시해야 보여요' : '불러오지 못했어요'}</p>`; return; }
+  const n = (x) => Number(x || 0).toLocaleString('ko-KR');
+  const usd = (c = {}) => UMETERS.reduce((a, m) => a + (m.usd ? ((c[m.id] || 0) / 1000) * m.usd : 0), 0);
+  rows.forEach((r) => { r.usd = usd(r.c); });
+  rows.sort((a, b) => b.usd - a.usd);
+  const total = rows.reduce((a, r) => a + r.usd, 0);
+  const $ = (v) => `$${v < 10 ? v.toFixed(2) : v.toFixed(1)}`;
+  box.innerHTML = `<p class="small muted" style="margin:0 2px 8px">${month} · 앱에서 센 추정치 · 몇 분 늦게 반영</p>
+    ${rows.length ? rows.map((r) => {
+      const nm = names[r.email] || r.name || r.email || r.id;
+      const pct = total ? (r.usd / total) * 100 : 0;
+      const parts = UMETERS.filter((m) => r.c?.[m.id]).map((m) => `<span>${esc(m.name)} ${n(r.c[m.id])}</span>`).join('');
+      return `<div class="urow">
+        <div class="uline"><b>${esc(nm)}</b><span>${$(r.usd)}${total ? ` · ${pct.toFixed(0)}%` : ''}</span></div>
+        <div class="ubar"><i style="width:${pct.toFixed(1)}%"></i></div>
+        <div class="upeople">${parts || '<span>사용 없음</span>'}</div>
+      </div>`;
+    }).join('') : '<p class="small muted">아직 기록이 없어요</p>'}
+    ${rows.length ? `<div class="uline" style="margin-top:6px"><b>합계</b><b>${$(total)}</b></div>` : ''}
+    <p class="small muted" style="margin:8px 2px 0">정가 기준이에요. 실제로는 앱 전체 무료분(월 1만 건 등)을 먼저 빼서 대부분 $0이에요. 날씨·항공편은 횟수만 셈.</p>`;
+}
+
 /** 테스터 관리: 요청 승인 · 직접 추가 · 이름 메모 · 삭제 */
 async function adminSheet() {
   let reqs = []; let allow = [];
@@ -391,7 +423,10 @@ async function adminSheet() {
     <div class="adm-tabs">
       <button data-x="tab" data-v="users" class="${admTab === 'users' ? 'on' : ''}">테스터${reqs.length ? ` <span>${reqs.length}</span>` : ''}</button>
       <button data-x="tab" data-v="usage" class="${admTab === 'usage' ? 'on' : ''}">API 사용량</button>
+      <button data-x="tab" data-v="people" class="${admTab === 'people' ? 'on' : ''}">사용자별</button>
     </div>
+    <div data-pane="people" ${admTab === 'people' ? '' : 'hidden'}><div class="adm-uhead"><button class="btn ghost small" data-x="pmonth">${peopleMonth ? '이번 달 보기' : '지난달 보기'}</button><button class="btn ghost small" data-x="preload">새로고침</button></div>
+    <div class="adm-usage" data-x="people"></div></div>
     <div data-pane="usage" ${admTab === 'usage' ? '' : 'hidden'}><div class="adm-uhead"><button class="btn ghost small" data-x="ureload">새로고침</button></div>
     <div class="adm-usage" data-x="usage"></div></div>
     <div data-pane="users" ${admTab === 'users' ? '' : 'hidden'}>
@@ -422,7 +457,12 @@ async function adminSheet() {
       sh.querySelectorAll('[data-x=tab]').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
       sh.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== v; });
       if (v === 'usage' && !uLoaded) { uLoaded = true; if (usageCache) ubox.innerHTML = usageHtml(usageCache.data); paintUsage(ubox, false); }
+      if (v === 'people' && !pLoaded) { pLoaded = true; paintPeople(pbox, names); }
     };
+    const pbox = sh.querySelector('[data-x=people]'); let pLoaded = false;
+    const names = Object.fromEntries(allow.filter((a) => a.name).map((a) => [a.id, a.name])); names[emailOf(S.user)] = '나 (관리자)';
+    sh.querySelector('[data-x=preload]').onclick = () => paintPeople(pbox, names);
+    sh.querySelector('[data-x=pmonth]').onclick = (ev) => { peopleMonth = peopleMonth ? 0 : -1; ev.target.textContent = peopleMonth ? '이번 달 보기' : '지난달 보기'; paintPeople(pbox, names); };
     sh.querySelectorAll('[data-x=tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.v); });
     sh.querySelector('[data-x=ureload]').onclick = () => paintUsage(ubox, true);
     showTab(admTab);
@@ -1641,6 +1681,7 @@ function fdate(dt) { return dt ? `${md(dt)} ${hm(dt)}` : ''; }
 /* ---------- 항공편 조회 (편명 불러오기 · 상태 체크) ---------- */
 async function fetchFlight(no, date) {
   const tok = await idToken();
+  bump('flight');
   const r = await fetch(`/api/flight?no=${encodeURIComponent(no)}&date=${encodeURIComponent(date)}`, { headers: { Authorization: `Bearer ${tok}` } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'fail');
