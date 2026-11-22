@@ -234,6 +234,10 @@ async function write(fn) {
     toast(e?.code === 'permission-denied' ? '권한이 없어요' : '저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
   }
 }
+// 오프라인이면 쓰기 promise가 서버 응답 올 때까지 안 끝남 → 화면은 기다리지 않음.
+// 여러 문서는 batch 하나로: 로컬엔 바로 한꺼번에 반영, 연결되면 같이 올라감 (앞 쓰기가 뒤 쓰기를 막지 않게)
+function commit(b) { write(() => b.commit()); }
+function needOnline() { if (navigator.onLine) return false; toast('인터넷에 연결된 뒤에 할 수 있어요'); return true; }
 
 /* ---------------- icons ---------------- */
 const I = {
@@ -659,7 +663,7 @@ async function placeRows(t, tokens, movedTok) {
     if (src && src[key] !== ap) { src[key] = ap; ups.push(['flights', src.id, { [key]: ap }]); }
   });
   render();
-  if (ups.length) write(async () => { for (const [c, id, data] of ups) await updateDoc(doc(db, 'trips', t.id, c, id), data); });
+  if (ups.length) { const b = writeBatch(db); for (const [c, id, data] of ups) b.update(doc(db, 'trips', t.id, c, id), data); commit(b); }
 }
 
 /* 순서 바꾸기: 일정(또는 항공편)을 꾹 누르면 그 자리에서 바로 끌어서 이동 (화면 다시 그리지 않음) */
@@ -1194,7 +1198,7 @@ async function onNotesClick(e, t, box, syncCopy) {
   if (k === 'mode' || k === 'mood' || k === 'to' || k === 'sticker') { st[k] = val; syncCopy(await drawNotes(t, box)); return; }
   if (k === 'del') {
     if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = '지울까요?'; return; }
-    await write(() => deleteDoc(doc(db, 'trips', t.id, 'notes', b.dataset.id)));
+    write(() => deleteDoc(doc(db, 'trips', t.id, 'notes', b.dataset.id)));
     syncCopy(await drawNotes(t, box)); return;
   }
   if (k === 'save') {
@@ -1203,7 +1207,7 @@ async function onNotesClick(e, t, box, syncCopy) {
       ? { text, mood: st.mood, to: null }
       : { text, sticker: st.sticker, to: st.to };
     b.disabled = true;
-    await write(() => setDoc(doc(db, 'trips', t.id, 'notes', uid()), { ...data, by: S.user.uid, createdAt: Date.now() }));
+    write(() => setDoc(doc(db, 'trips', t.id, 'notes', uid()), { ...data, by: S.user.uid, createdAt: Date.now() }));
     st.draft = '';
     syncCopy(await drawNotes(t, box));
     toast(st.mode === 'review' ? '후기를 남겼어요 ✨' : `${st.to}에게 한마디를 보냈어요 💌`);
@@ -1618,14 +1622,14 @@ function toPlanSheet(t, p) {
       const time = sh.querySelector('[name=time]').value;
       const itemId = uid();
       closeSheet();
-      await write(async () => {
-        await setDoc(doc(db, 'trips', t.id, 'items', itemId), {
-          title: p.name, date, time, memo: p.memo || '', link: p.link || '', cat: p.cat === '숙소' ? '숙소' : (ICATS[p.cat] ? p.cat : '기타'),
-          lat: p.lat ?? null, lng: p.lng ?? null, address: p.address || '', placeId: p.placeId || null,
-          done: false, createdAt: Date.now(), by: S.user.uid, fromWish: p.id, pos: insertPos(date, time),
-        });
-        await updateDoc(doc(db, 'trips', t.id, 'places', p.id), { addedTo: { itemId, date } });
+      const b = writeBatch(db);
+      b.set(doc(db, 'trips', t.id, 'items', itemId), {
+        title: p.name, date, time, memo: p.memo || '', link: p.link || '', cat: p.cat === '숙소' ? '숙소' : (ICATS[p.cat] ? p.cat : '기타'),
+        lat: p.lat ?? null, lng: p.lng ?? null, address: p.address || '', placeId: p.placeId || null,
+        done: false, createdAt: Date.now(), by: S.user.uid, fromWish: p.id, pos: insertPos(date, time),
       });
+      b.update(doc(db, 'trips', t.id, 'places', p.id), { addedTo: { itemId, date } });
+      commit(b);
       toast(`Day ${idx + 1}에 넣었어요`);
     };
   });
@@ -1970,10 +1974,12 @@ function tripForm(t) {
         shareOut.querySelector('[data-x=scp]').onclick = () => copy(url, '공유 링크를 복사했어요');
         shareOut.querySelector('[data-x=ssh]')?.addEventListener('click', () => navigator.share({ title: cur.name, text: `'${cur.name}' 일정이에요`, url }).catch(() => {}));
         shareOut.querySelector('[data-x=sstop]').onclick = () => askConfirm('공유 링크를 끌까요? 이미 보낸 링크로는 더 이상 볼 수 없어요.', '끄기', async () => {
+          if (needOnline()) return;
           await write(() => stopShare(trip() || t)); t.shareCode = null; drawShare(); toast('공유 링크를 껐어요');
         });
       }
       shareOut.querySelector('[data-x=mkshare]')?.addEventListener('click', async () => {
+        if (needOnline()) return;
         if (S.tripId !== t.id || !S.fresh.items) return toast('일정을 불러온 뒤 다시 눌러 주세요');
         try { t.shareCode = await makeShare(trip() || t); drawShare(); } catch (e) { console.error(e); toast(e?.code === 'permission-denied' ? '권한이 없어요 (규칙 업데이트 필요)' : '링크를 만들지 못했어요'); }
       });
@@ -1992,15 +1998,16 @@ function tripForm(t) {
       closeSheet();
       if (isNew) {
         const id = uid();
-        await write(() => setDoc(doc(db, 'trips', id), {
-          ...data, ownerId: S.user.uid, members: [S.user.uid], memberNames: { [S.user.uid]: me() }, createdAt: Date.now(),
-        }));
+        const nt = { ...data, ownerId: S.user.uid, members: [S.user.uid], memberNames: { [S.user.uid]: me() }, createdAt: Date.now() };
+        write(() => setDoc(doc(db, 'trips', id), nt));
+        if (!S.trips.some((x) => x.id === id)) S.trips.push({ id, ...nt }); // 오프라인이어도 바로 열리게
         S.tab = 'plan'; openTrip(id);
-      } else await write(() => updateDoc(doc(db, 'trips', t.id), data));
+      } else write(() => updateDoc(doc(db, 'trips', t.id), data));
     };
     sh.querySelector('[data-x=invite]')?.addEventListener('click', async () => {
       let code = t.inviteCode;
       if (!code) {
+        if (needOnline()) return;
         code = randCode(14);
         await write(async () => {
           await setDoc(doc(db, 'invites', code), { tripId: t.id, createdBy: S.user.uid, createdAt: Date.now() });
@@ -2040,6 +2047,7 @@ async function deleteTripData(t) {
   await deleteDoc(doc(db, 'trips', id));
 }
 async function deleteTrip(t) {
+  if (needOnline()) return; // 이 기기에 안 받아둔 하위 문서가 서버에 남을 수 있어서
   openTrip(null);
   await write(() => deleteTripData(t));
   toast('삭제했어요');
@@ -2100,7 +2108,8 @@ function itemForm(t, item) {
       const spend = Number(sh.querySelector('[name=spend]').value);
       const itemId = isNew ? uid() : item.id;
       closeSheet(); S.day = data.date;
-      await write(async () => {
+      {
+        const b = writeBatch(db);
         // 쓴 돈 → 가계부 지출로 연결 (있으면 수정, 비우면 삭제)
         let expenseId = item.expenseId || null;
         if (spend > 0) {
@@ -2108,17 +2117,18 @@ function itemForm(t, item) {
             title: data.title, amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: SPEND_CAT[data.cat] || '기타',
             payer: pillVal(sh, 'spayer')[0] || linked?.payer || people[0], split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(), date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
           };
-          if (expenseId && linked) await updateDoc(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
-          else { expenseId = uid(); await setDoc(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
-        } else if (expenseId) { await deleteDoc(doc(db, 'trips', t.id, 'expenses', expenseId)); expenseId = null; }
+          if (expenseId && linked) b.update(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
+          else { expenseId = uid(); b.set(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
+        } else if (expenseId) { b.delete(doc(db, 'trips', t.id, 'expenses', expenseId)); expenseId = null; }
         data.expenseId = expenseId;
         if (isNew || data.date !== item.date) data.pos = insertPos(data.date, data.time, itemId);
-        if (isNew) await setDoc(doc(db, 'trips', t.id, 'items', itemId), { ...data, done: false, createdAt: Date.now(), by: S.user.uid });
-        else await updateDoc(doc(db, 'trips', t.id, 'items', itemId), data);
-      });
+        if (isNew) b.set(doc(db, 'trips', t.id, 'items', itemId), { ...data, done: false, createdAt: Date.now(), by: S.user.uid });
+        else b.update(doc(db, 'trips', t.id, 'items', itemId), data);
+        commit(b);
+      }
     };
     sh.querySelector('[data-x=towish]')?.addEventListener('click', () => itemToWish(t, item));
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${item.title}' 일정을 삭제할까요?${item.expenseId ? ' 연결된 지출도 같이 지워져요.' : ''}`, '삭제', () => write(async () => { if (item.expenseId) await deleteDoc(doc(db, 'trips', t.id, 'expenses', item.expenseId)); await deleteDoc(doc(db, 'trips', t.id, 'items', item.id)); })));
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${item.title}' 일정을 삭제할까요?${item.expenseId ? ' 연결된 지출도 같이 지워져요.' : ''}`, '삭제', () => { const b = writeBatch(db); if (item.expenseId) b.delete(doc(db, 'trips', t.id, 'expenses', item.expenseId)); b.delete(doc(db, 'trips', t.id, 'items', item.id)); commit(b); }));
   });
 }
 
@@ -2126,8 +2136,8 @@ function itemForm(t, item) {
 function itemToWish(t, item) {
   const src = item.fromWish ? S.places.find((p) => p.id === item.fromWish) : null;
   const exp = item.expenseId ? S.expenses.find((e) => e.id === item.expenseId) : null;
-  askConfirm(`'${item.title}'을(를) 일정에서 빼고 찜으로 옮길까요?${exp ? ' 쓴 돈은 가계부에 그대로 남아요.' : ''}`, '옮기기', async () => {
-    await write(async () => {
+  askConfirm(`'${item.title}'을(를) 일정에서 빼고 찜으로 옮길까요?${exp ? ' 쓴 돈은 가계부에 그대로 남아요.' : ''}`, '옮기기', () => {
+    {
       const b = writeBatch(db);
       if (src) {
         const up = src.addedTo?.itemId === item.id ? { addedTo: deleteField() } : {};
@@ -2143,8 +2153,8 @@ function itemToWish(t, item) {
       }
       if (exp) b.update(doc(db, 'trips', t.id, 'expenses', exp.id), { itemId: null });
       b.delete(doc(db, 'trips', t.id, 'items', item.id));
-      await b.commit();
-    });
+      commit(b);
+    }
     toast('찜으로 옮겼어요');
   });
 }
@@ -2283,12 +2293,12 @@ function flightForm(t, f) {
       }
       ev.target.value = ''; drawQr();
     });
-    const saveQrs = async (flightId) => {
+    const saveQrs = (b, flightId) => {
       for (const q of qrs.filter((x) => x.isNew)) {
-        await setDoc(doc(db, 'trips', t.id, 'files', q.id), { flightId, data: q.data, createdAt: Date.now(), by: S.user.uid });
+        b.set(doc(db, 'trips', t.id, 'files', q.id), { flightId, data: q.data, createdAt: Date.now(), by: S.user.uid });
         qrCache.set(q.id, q.data);
       }
-      for (const id of removed) { await deleteDoc(doc(db, 'trips', t.id, 'files', id)); qrCache.delete(id); }
+      for (const id of removed) { b.delete(doc(db, 'trips', t.id, 'files', id)); qrCache.delete(id); }
       return qrs.map((q) => q.id);
     };
     sh.querySelector('[data-x=save]').onclick = async () => {
@@ -2302,24 +2312,23 @@ function flightForm(t, f) {
         who: pillVal(sh, 'who'),
       };
       const fid = isNew ? uid() : f.id;
-      const btn = sh.querySelector('[data-x=save]'); btn.disabled = true; btn.textContent = '저장 중…';
-      await write(async () => {
-        data.qrIds = await saveQrs(fid);
-        if (isNew) await setDoc(doc(db, 'trips', t.id, 'flights', fid), { ...data, createdAt: Date.now(), by: S.user.uid });
-        else {
-          // 날짜·시간이 바뀌면 순서 고정을 풀고 다시 시간 기준으로
-          if (data.depAt !== f.depAt) data.posDep = null;
-          if (data.arrAt !== f.arrAt) data.posArr = null;
-          await updateDoc(doc(db, 'trips', t.id, 'flights', fid), data);
-        }
-      });
+      const b = writeBatch(db);
+      data.qrIds = saveQrs(b, fid);
+      if (isNew) b.set(doc(db, 'trips', t.id, 'flights', fid), { ...data, createdAt: Date.now(), by: S.user.uid });
+      else {
+        // 날짜·시간이 바뀌면 순서 고정을 풀고 다시 시간 기준으로
+        if (data.depAt !== f.depAt) data.posDep = null;
+        if (data.arrAt !== f.arrAt) data.posArr = null;
+        b.update(doc(db, 'trips', t.id, 'flights', fid), data);
+      }
       closeSheet();
+      commit(b);
     };
     sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`${f.from || ''}→${f.to || ''} 항공권을 삭제할까요?${(f.qrIds || []).length ? ' QR 사진도 같이 지워져요.' : ''}`, '삭제', () => {
-      write(async () => {
-        for (const id of f.qrIds || []) await deleteDoc(doc(db, 'trips', t.id, 'files', id));
-        await deleteDoc(doc(db, 'trips', t.id, 'flights', f.id));
-      });
+      const b = writeBatch(db);
+      for (const id of f.qrIds || []) b.delete(doc(db, 'trips', t.id, 'files', id));
+      b.delete(doc(db, 'trips', t.id, 'flights', f.id));
+      commit(b);
     }));
   });
 }
@@ -2378,7 +2387,7 @@ function expForm(t, e) {
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
       else await write(() => updateDoc(doc(db, 'trips', t.id, 'expenses', e.id), data));
     };
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${e.title}' 지출을 삭제할까요?`, '삭제', () => write(async () => { await deleteDoc(doc(db, 'trips', t.id, 'expenses', e.id)); if (e.itemId) await updateDoc(doc(db, 'trips', t.id, 'items', e.itemId), { expenseId: null }).catch(() => {}); })));
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${e.title}' 지출을 삭제할까요?`, '삭제', () => { const b = writeBatch(db); b.delete(doc(db, 'trips', t.id, 'expenses', e.id)); if (e.itemId && S.items.some((i) => i.id === e.itemId)) b.update(doc(db, 'trips', t.id, 'items', e.itemId), { expenseId: null }); commit(b); }));
   });
 }
 
@@ -2417,16 +2426,18 @@ function accountSheet() {
     sh.querySelector('[data-x=save]').onclick = async () => {
       const name = sh.querySelector('[name=pname]').value.trim() || S.user.displayName || '나';
       closeSheet();
-      await write(async () => {
-        await setDoc(doc(db, 'users', uidMe), { name, photo: photo || null, noGooglePhoto: noGoogle, updatedAt: Date.now() });
-        // 참여 중인 여행들에 보이는 이름도 갱신
-        for (const t of S.trips) {
-          const old = t.memberNames?.[uidMe];
-          await updateDoc(doc(db, 'trips', t.id), { [`memberNames.${uidMe}`]: name });
-          if (old && old !== name) await renameInTrip(t.id, old, name);
-        }
-      });
+      const b = writeBatch(db);
+      b.set(doc(db, 'users', uidMe), { name, photo: photo || null, noGooglePhoto: noGoogle, updatedAt: Date.now() });
+      // 참여 중인 여행들에 보이는 이름도 갱신
+      const renames = [];
+      for (const t of S.trips) {
+        const old = t.memberNames?.[uidMe];
+        b.update(doc(db, 'trips', t.id), { [`memberNames.${uidMe}`]: name });
+        if (old && old !== name) renames.push([t.id, old]);
+      }
+      commit(b);
       toast('프로필을 저장했어요');
+      for (const [id, old] of renames) write(() => renameInTrip(id, old, name));
     };
     sh.querySelector('[data-x=delete]').onclick = () => askConfirm('정말 탈퇴할까요? 되돌릴 수 없어요.', '탈퇴하기', startDeleteAccount);
   });
@@ -2444,7 +2455,7 @@ async function renameInTrip(tripId, from, to) {
       if (Object.keys(up).length && n < 450) { batch.update(d.ref, up); n++; }
     });
   }
-  if (n) await batch.commit();
+  if (n) commit(batch);
 }
 async function compressAvatar(file) {
   // 정사각형으로 잘라 256px
