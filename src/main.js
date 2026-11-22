@@ -1474,7 +1474,7 @@ function itemRow(t, i, no, list) {
     </div></div>`;
   }
   if (i.kind === 'memo') {
-    return `<div class="item memo" style="${memoStyle(i)}" data-act="editMemo" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div></div>`;
+    return `<div class="item memo" style="${memoStyle(i)}" data-act="editMemo" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><div class="memotxt">${esc(i.memo || '')}</div>${itemSpendHtml(t, i)}</div>`;
   }
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" data-lp="${esc(i.id)}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
     ${i.done ? starsHtml(t, i) : ''}<div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
@@ -2212,13 +2212,27 @@ function memoForm(t, m) {
   const isNew = !m; const days = tripDays(t);
   m = m || { date: S.day, memo: '', color: localStorage.getItem('memoColor') || 'yellow' };
   let color = MEMO_COLORS[m.color] ? m.color : 'yellow';
+  const linked = m.expenseId ? S.expenses.find((e) => e.id === m.expenseId) : null;
+  const spCurs = [...new Set([t.currency || 'KRW', 'KRW'])];
+  const people = peopleOf(t);
   openSheet(`<h2>${isNew ? '메모 추가' : '메모 수정'}</h2>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" rows="5" placeholder="예: 숙소 체크인 15시, 짐 맡기기 / 환전 잊지 말기">${esc(m.memo)}</textarea></label>
     <div class="f"><span class="flbl">색</span><div class="covpick" id="memoPick">${Object.entries(MEMO_COLORS).map(([k, [bg, line]]) => `<button type="button" class="cov ${k === color ? 'on' : ''}" data-mc="${k}" style="background:${bg};box-shadow:inset 0 0 0 1.5px ${line}55" aria-label="메모 색 ${k}"></button>`).join('')}</div></div>
     <label class="f"><span>날짜</span><select class="inp" name="date">${days.map((d, i) => `<option value="${esc(d)}" ${d === m.date ? 'selected' : ''}>Day ${i + 1}${d.startsWith('day') ? '' : ' · ' + esc(md(d))}</option>`).join('')}</select></label>
     <p class="small muted" style="margin:-4px 0 12px">맨 아래에 붙어요. '순서 바꾸기'로 끌어서 원하는 위치로 옮길 수 있어요.</p>
+    <div class="spendbox"><span class="flbl">💸 쓴 돈 (가계부에 자동 기록)</span>
+      <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || spCurs[0])}</div>
+      <div id="spendMore" ${linked ? '' : 'hidden'}>
+        <label class="f" style="margin-top:8px"><span>가계부에 적을 이름</span><input class="inp" name="stitle" value="${esc(linked?.title || '')}" placeholder="비우면 메모 첫 줄"></label>
+        <div><span class="flbl">분류</span>${pills('scat', Object.keys(ECATS), linked?.cat || '기타')}</div>
+        ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
+        <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || people, true)}</div>` : ''}
+      </div>
+      <div class="hint">정산 탭에 바로 반영돼요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    const v = fval(sh);
+    wirePills(sh); const v = fval(sh);
+    const spendIn = sh.querySelector('[name=spend]');
+    spendIn.addEventListener('input', () => { if (Number(spendIn.value) > 0) sh.querySelector('#spendMore').hidden = false; });
     setTimeout(() => sh.querySelector('[name=memo]').focus(), 50);
     const ta = sh.querySelector('[name=memo]');
     const paint = () => { const [bg, line, ink] = MEMO_COLORS[color]; ta.style.background = bg; ta.style.borderColor = line + '66'; ta.style.color = ink; };
@@ -2231,12 +2245,30 @@ function memoForm(t, m) {
       if (!v('memo')) return toast('메모를 적어 주세요');
       const data = { kind: 'memo', memo: v('memo'), date: v('date'), title: '', time: '', color };
       try { localStorage.setItem('memoColor', color); } catch {}
-      if (isNew || data.date !== m.date) data.pos = insertPos(data.date, '', m.id);
+      const itemId = isNew ? uid() : m.id;
+      if (isNew || data.date !== m.date) data.pos = insertPos(data.date, '', itemId);
+      const spend = Number(spendIn.value);
       closeSheet(); S.day = data.date;
-      if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'items', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
-      else await write(() => updateDoc(doc(db, 'trips', t.id, 'items', m.id), data));
+      const b = writeBatch(db);
+      // 쓴 돈 → 가계부 지출로 연결 (있으면 수정, 비우면 삭제). 이름은 비우면 메모 첫 줄
+      let expenseId = m.expenseId || null;
+      if (spend > 0) {
+        const first = data.memo.split('\n').map((x) => x.trim()).find(Boolean) || '메모';
+        const exp = {
+          title: v('stitle') || (first.length > 30 ? first.slice(0, 30) + '…' : first), amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: pillVal(sh, 'scat')[0] || '기타',
+          payer: pillVal(sh, 'spayer')[0] || linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]),
+          split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(),
+          date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
+        };
+        if (expenseId && linked) b.update(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
+        else { expenseId = uid(); b.set(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
+      } else if (expenseId) { if (linked) b.delete(doc(db, 'trips', t.id, 'expenses', expenseId)); expenseId = null; }
+      data.expenseId = expenseId;
+      if (isNew) b.set(doc(db, 'trips', t.id, 'items', itemId), { ...data, createdAt: Date.now(), by: S.user.uid });
+      else b.update(doc(db, 'trips', t.id, 'items', itemId), data);
+      commit(b);
     };
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm('이 메모를 삭제할까요?', '삭제', () => write(() => deleteDoc(doc(db, 'trips', t.id, 'items', m.id)))));
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`이 메모를 삭제할까요?${linked ? ' 연결된 지출도 같이 지워져요.' : ''}`, '삭제', () => { const b = writeBatch(db); if (linked) b.delete(doc(db, 'trips', t.id, 'expenses', linked.id)); b.delete(doc(db, 'trips', t.id, 'items', m.id)); commit(b); }));
   });
 }
 
