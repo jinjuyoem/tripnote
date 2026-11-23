@@ -2006,7 +2006,7 @@ function viewMoney(t) {
       const sign = e.refund ? '+' : '';
       return `<button class="exp ${e.refund ? 'refund' : ''}" data-act="editExp" data-id="${esc(e.id)}" data-elp="${esc(e.id)}">
         <div class="ico" style="background:${col}1F;color:${col}">${e.refund ? '↩︎' : CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
-        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.refund ? `환급 · ${esc(e.payer || '?')} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
+        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.vendor ? `${esc(e.vendor)} · ` : ''}${e.refund ? `환급 · ${esc(e.payer || '?')} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
         <div class="amt">${local ? `${sign}${num(e.amount)} ${esc(t.currency)}<small>${sign}${won(Math.abs(toKRW(t, e)))}</small>` : `${sign}${won(e.amount)}`}</div></button>`;
     }).join('')}</div>`; }).join('')
     : '<div class="empty"><b>기록된 지출이 없어요</b>쓴 돈을 바로바로 적어 두면 정산이 쉬워요.</div>'}`;
@@ -2623,6 +2623,8 @@ function expForm(t, e) {
       <label class="f"><span>통화</span>${pills('cur', curs, e.cur || curs[0])}</label></div>
     <div id="rateBox"></div>
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ECATS), e.cat || '기타')}</label>
+    <label class="f" id="vendorRow"><span>결제처 (항공사·여행사)</span><input class="inp" name="vendor" value="${esc(e.vendor || '')}" placeholder="예: 트립닷컴, 마이리얼트립, 대한항공" list="vendorList" autocomplete="off">
+      <datalist id="vendorList">${[...new Set(S.expenses.map((x) => x.vendor).filter(Boolean))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></label>
     <label class="f" id="payRow"><span>결제 수단</span>${pills('pay', PAY_METHODS, e.pay || '')}</label>
     <label class="f"><span id="payerLbl">결제한 사람</span>${pills('payer', people, e.payer)}</label>
     <label class="f"><span>나눌 사람</span>${pills('split', people, e.split || people, true)}</label>
@@ -2637,6 +2639,10 @@ function expForm(t, e) {
       sh.querySelector('[name=title]').placeholder = refund ? '예: 택스 리펀, 보증금 환불' : '예: 이치란 라멘';
     };
     paintKind();
+    const isAir = () => (pillVal(sh, 'cat')[0] || '') === '항공';
+    const paintVendor = () => { sh.querySelector('#vendorRow').hidden = !isAir(); };
+    paintVendor();
+    sh.querySelector('[data-pills=cat]').addEventListener('click', () => setTimeout(paintVendor));
     sh.querySelector('#expKind').addEventListener('click', (ev) => { const b = ev.target.closest('[data-k]'); if (!b) return; refund = b.dataset.k === '1'; paintKind(); });
     // 외화일 때: 이 지출에 적용할 환율 (카드 결제 환율 등) — 기본값은 여행 설정 환율
     let rateTyped = e.rate ? String(Math.round(e.rate * rateUnit(e.cur) * 10000) / 10000) : '';
@@ -2668,7 +2674,7 @@ function expForm(t, e) {
       if (!v('title') || !(amount > 0)) return toast('내용과 금액을 확인해 주세요');
       const split = pillVal(sh, 'split'); if (!split.length) return toast('나눌 사람을 한 명 이상 골라 주세요');
       const cur = curNow(); const rIn = Number(sh.querySelector('[name=rate]')?.value);
-      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', refund, pay: refund ? null : pillVal(sh, 'pay')[0] || null, payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
+      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', refund, pay: refund ? null : pillVal(sh, 'pay')[0] || null, payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date'), vendor: isAir() ? v('vendor') || null : null };
       try { if (data.pay) localStorage.setItem('payMethod', data.pay); } catch {}
       closeSheet();
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
