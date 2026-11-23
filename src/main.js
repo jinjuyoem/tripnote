@@ -1419,10 +1419,9 @@ function segText(from, to, mode) {
   if (r.err) return '<span class="muted">계산 실패</span>';
   if (r.none) {
     // 구글 API가 일부 지역 정보를 안 줌 (예: 일본 대중교통, 한국 도보·차). 길찾기 링크는 구글맵 앱에서 정상 동작
-    const m = mode === 'auto' ? 'transit' : mode;
-    return `<span class="muted">이 지역은 ${MOVES[m][1]} 시간 미제공 · 직선 ${fmtDist(straightM(from, to))} → 길찾기에서 확인</span>`;
+    return '<span class="muted">정보 없음</span>';
   }
-  const note = r.transitNone ? ' <span class="muted">(대중교통 시간 미제공 → 길찾기)</span>' : '';
+  const note = '';
   return `<b>${fmtDur(r.secs)}</b> · ${fmtDist(r.meters)}${note}`;
 }
 async function routeFor(t, from, to, mode) {
