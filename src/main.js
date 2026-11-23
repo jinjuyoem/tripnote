@@ -1179,33 +1179,37 @@ async function openRecap(t) {
     ...per.map((x, i) => `${dayLabel(x, i)}: ${x.items.map((it) => it.title).join(' → ') || '-'}`)].join('\n');
   v.innerHTML = `<div class="rc-in">
     <div class="rc-top"><button class="qv-x" data-rc="x">닫기</button></div>
-    <div class="rc-hero"><div class="rc-glow"></div><div class="rc-city">${esc(t.city || 'TRIP')}</div><h1>${esc(t.name)}</h1>
-      <div class="rc-dates">${t.start ? esc(md(t.start)) + (t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : '') : ''}${nights ? ' · ' + nights : ''}</div>
-      <div class="rc-people">${(t.members || []).map((u) => avatar(u, 30, t.memberNames?.[u])).join('')}</div></div>
-    <div class="rc-grid rc-a">
+    <section class="rc-hero rc-intro"><div class="rc-glow"></div>
+      <div class="rc-hello">잘 다녀오셨나요?</div>
+      <div class="rc-hsub">${t.city ? `${esc(t.city)}에서의 ` : ''}${nights ? esc(nights) : '여행'}, 같이 돌아볼까요</div>
+      <div class="rc-card"><div class="rc-city">${esc(t.city || 'TRIP')}</div><h1>${esc(t.name)}</h1>
+        <div class="rc-dates">${t.start ? esc(md(t.start)) + (t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : '') : ''}${nights ? ' · ' + nights : ''}</div>
+        <div class="rc-people">${(t.members || []).map((u) => avatar(u, 30, t.memberNames?.[u])).join('')}</div></div>
+      <div class="rc-scroll">천천히 내려보세요<i>↓</i></div></section>
+    ${rcCh('우리가 다녀온 곳들', '', `<div class="rc-grid rc-a">
       <div><span>📍</span><b data-cnt="${sum('places')}">${sum('places')}</b><i>곳 방문${done ? ` (${done} 완료)` : ''}</i></div>
       <div><span>🚶</span><b>${sum('walkS') ? fmtDur(sum('walkS')) : '-'}</b><i>${sum('walkM') ? fmtDist(sum('walkM')) + ' 걸음' : '걸은 시간'}</i></div>
       <div><span>🍜</span><b data-cnt="${sum('meals')}" data-suf="끼">${sum('meals')}끼</b><i>맛집</i></div>
       <div><span>☕</span><b data-cnt="${sum('cafes')}" data-suf="곳">${sum('cafes')}곳</b><i>카페</i></div>
       <div><span>🛍</span><b data-cnt="${sum('shops')}" data-suf="곳">${sum('shops')}곳</b><i>쇼핑</i></div>
       <div><span>✈️</span><b data-cnt="${S.flights.length}" data-suf="편">${S.flights.length}편</b><i>비행</i></div>
-    </div>
-    ${ttype ? `<div class="rc-type rc-a"><div class="rct-e">${ttype.emoji}</div><div class="rct-k">이번 여행은</div><div class="rct-t">${esc(ttype.title)}</div><div class="rct-s">${esc(ttype.sub)}</div>
-      <div class="rct-bars">${ttype.rows.map(([k, e, x]) => `<div class="rct-row"><span>${e} ${k}</span><div><i style="--w:${Math.round(x * 100)}%"></i></div><b>${Math.round(x * 100)}%</b></div>`).join('')}</div></div>` : ''}
-    <div class="sum rc-money rc-a"><div class="lbl">총 지출</div><div class="big" data-cnt="${Math.round(total)}" data-won="1">${won(total)}</div>
-      <div class="bars">${total ? cats.map(([c, x]) => `<div style="width:${(x / total) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
-      <div class="legend">${cats.map(([c, x]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(x)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / ppl)}</span>` : ''}</div></div>
-    <div class="rc-best rc-a">
+    </div>`)}
+    ${ttype ? rcCh('그래서, 이번 여행은', '', `<div class="rc-type rc-a"><div class="rct-e">${ttype.emoji}</div><div class="rct-t">${esc(ttype.title)}</div><div class="rct-s">${esc(ttype.sub)}</div>
+      <div class="rct-bars">${ttype.rows.map(([k, e, x]) => `<div class="rct-row"><span>${e} ${k}</span><div><i style="--w:${Math.round(x * 100)}%"></i></div><b>${Math.round(x * 100)}%</b></div>`).join('')}</div></div>`) : ''}
+    ${total ? rcCh('얼마나 썼을까요', '아깝지 않은 돈이었길', `<div class="sum rc-money rc-a"><div class="lbl">총 지출</div><div class="big" data-cnt="${Math.round(total)}" data-won="1">${won(total)}</div>
+      <div class="bars">${cats.map(([c, x]) => `<div style="width:${(x / total) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('')}</div>
+      <div class="legend">${cats.map(([c, x]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(x)}</span>`).join('')}<span>· 1인당 약 ${won(total / ppl)}</span></div></div>
+    ${(topSpend && topSpend.spent) || (topWalk && topWalk.walkS) ? `<div class="rc-best rc-a">
       ${topSpend && topSpend.spent ? `<div>💸 가장 많이 쓴 날<b>${esc(dayLabel(topSpend, per.indexOf(topSpend)))} · ${won(topSpend.spent)}</b></div>` : ''}
       ${topWalk && topWalk.walkS ? `<div>🚶 가장 많이 걸은 날<b>${esc(dayLabel(topWalk, per.indexOf(topWalk)))} · ${fmtDur(topWalk.walkS)}</b></div>` : ''}
-    </div>
-    ${awardsHtml(t)}
-    <h3 class="rc-h">하루하루</h3>
-    ${per.map((x, i) => `<div class="rc-day rc-a"><div class="rc-dh"><b>${esc(dayLabel(x, i))}</b>${W[x.d] ? `<span>${W[x.d].emoji} ${Math.round(W[x.d].max)}°</span>` : ''}${x.spent ? `<span class="mono">${won(x.spent)}</span>` : ''}</div>
-      <div class="rc-route">${x.items.length ? x.items.map((it) => `<span style="--c:${(ICATS[it.cat] || ICATS.기타)[1]}">${esc(it.title)}</span>`).join('<em>→</em>') : '<span class="muted">기록 없음</span>'}</div></div>`).join('')}
-    ${leftWish.length ? `<h3 class="rc-h">다음에 가볼 곳 (못 간 찜 ${leftWish.length})</h3><div class="rc-route">${leftWish.map((p) => `<span style="--c:${(ICATS[p.cat] || ICATS.기타)[1]}">${esc(p.name)}</span>`).join('')}</div>` : ''}
+    </div>` : ''}`) : ''}
+    ${(() => { const a = awardsHtml(t); return a ? rcCh('🏆 우리끼리 어워드', '', a) : ''; })()}
+    ${rcCh('하루하루 다시 걸어볼게요', '', per.map((x, i) => `<div class="rc-day rc-a"><div class="rc-dh"><b>${esc(dayLabel(x, i))}</b>${W[x.d] ? `<span>${W[x.d].emoji} ${Math.round(W[x.d].max)}°</span>` : ''}${x.spent ? `<span class="mono">${won(x.spent)}</span>` : ''}</div>
+      <div class="rc-route">${x.items.length ? x.items.map((it, k) => `<span style="--c:${(ICATS[it.cat] || ICATS.기타)[1]};--k:${k}">${esc(it.title)}</span>`).join('<em>→</em>') : '<span class="muted">기록 없음</span>'}</div></div>`).join(''), 'days')}
+    ${leftWish.length ? rcCh('다음엔 여기도', `못 간 찜 ${leftWish.length}곳`, `<div class="rc-route rc-a">${leftWish.map((p, k) => `<span style="--c:${(ICATS[p.cat] || ICATS.기타)[1]};--k:${k}">${esc(p.name)}</span>`).join('')}</div>`) : ''}
+    <section class="rc-ch rc-end"><p class="rc-cap rc-a">수고했어요, 또 같이 떠나요</p><div class="rc-a rc-plane">✈︎</div>
     <div id="rcNotes"></div>
-    <button class="btn pri block" data-rc="copy" data-text="${esc(text)}" style="margin:22px 0 8px">리캡 텍스트 복사하기</button>
+    <button class="btn pri block" data-rc="copy" data-text="${esc(text)}" style="margin:22px 0 8px">리캡 텍스트 복사하기</button></section>
   </div>`;
   animateRecap(v);
   const box = v.querySelector('#rcNotes'); const copyBtn = v.querySelector('[data-rc=copy]');
@@ -1217,6 +1221,8 @@ async function openRecap(t) {
   box.addEventListener('click', (e) => onNotesClick(e, t, box, syncCopy));
 }
 
+/** 리캡 한 장면: 감성 문구 → 내용이 스크롤하면 하나씩 */
+const rcCh = (cap, sub, inner, cls = '') => `<section class="rc-ch ${cls}"><p class="rc-cap rc-a">${cap}${sub ? `<small>${esc(sub)}</small>` : ''}</p>${inner}</section>`;
 /** 여행 성격: 일정 분류 비중 + 지출 비중을 반반 섞어서 가장 큰 쪽 */
 function tripType(t) {
   const its = S.items.filter((i) => i.kind !== 'memo');
@@ -1249,8 +1255,9 @@ function animateRecap(v) {
   const io = new IntersectionObserver((ents) => ents.forEach((en) => {
     if (!en.isIntersecting) return; const el = en.target; io.unobserve(el); el.classList.add('in');
     el.querySelectorAll('[data-cnt]').forEach(count);
-  }), { root: v, threshold: 0.18 });
-  v.querySelectorAll('.rc-a').forEach((el, k) => { el.style.setProperty('--d', `${Math.min(k, 3) * 90}ms`); io.observe(el); });
+  }), { root: v, threshold: 0.25, rootMargin: '0px 0px -18% 0px' });
+  // 장면마다: 문구 먼저, 내용은 조금 뒤에 (화면에 들어올 때만 움직임 시작)
+  v.querySelectorAll('.rc-ch').forEach((ch) => ch.querySelectorAll('.rc-a').forEach((el, k) => { el.style.setProperty('--d', `${k === 0 ? 0 : 250 + Math.min(k - 1, 2) * 120}ms`); io.observe(el); }));
 }
 
 /* ---------- 리캡: 우리끼리 어워드 · 후기 · 서로에게 한마디 ---------- */
@@ -1268,7 +1275,7 @@ function awardsHtml(t) {
   const food = S.items.filter((i) => i.cat === '맛집').length;
   if (!rated.length && !wallet && !food) return '';
   const medal = ['🥇', '🥈', '🥉'];
-  return `<h3 class="rc-h">🏆 우리끼리 어워드</h3><div class="aw rc-a">
+  return `<div class="aw rc-a">
     ${rated.length ? `<div class="aw-card best"><div class="aw-t">⭐ 별점 베스트</div>${rated.map((x, k) => { const c = Object.values(x.i.comments || {}).filter(Boolean)[0]; return `<div class="aw-row"><span>${medal[k]}</span><b>${esc(x.i.title)}${c ? `<small>“${esc(c)}”</small>` : ''}</b><i>★${x.avg.toFixed(1)}</i></div>`; }).join('')}</div>` : ''}
     ${wallet ? `<div class="aw-card"><div class="aw-big">👛</div><div class="aw-t">든든한 지갑상</div><b>${esc(wallet[0])}</b><i>${won(wallet[1])} 결제</i></div>` : ''}
     ${food ? `<div class="aw-card"><div class="aw-big">🍜</div><div class="aw-t">먹방 기록</div><b>${food}끼</b><i>${food >= 8 ? '배 터지는 여행' : food >= 4 ? '알차게 냠냠' : '소소하게 냠'}</i></div>` : ''}
