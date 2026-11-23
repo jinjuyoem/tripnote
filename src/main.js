@@ -1054,8 +1054,8 @@ function viewPlan(t, days) {
         <div class="wxc-cond">${esc(wx.text || '')}</div>
         <div class="wxc-hl">최고 ${Math.round(wx.max)}° · 최저 ${Math.round(wx.min)}°</div></div>
       <div class="wxc-r"><span class="wxc-e">${wx.emoji}</span>
-        <span class="wxc-sub">${wx.kind === 'forecast' ? (wx.pop != null ? `☂︎ ${wx.pop}%` : '예보') : `작년 이맘때${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div>
-      <div class="wxc-note">${wx.kind === 'forecast' ? '' : '예보는 출발 10일 전부터 떠요 · '}출처 ${esc(wx.src || (wx.kind === 'forecast' ? 'Google 날씨' : 'Open-Meteo'))}</div>
+        <span class="wxc-sub">${wx.kind === 'forecast' ? (wx.pop != null ? `☂︎ ${wx.pop}%` : '예보') : `${wx.kind === 'past' ? '그날 날씨' : '작년 이맘때'}${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div>
+      <div class="wxc-note">${wx.kind === 'lastyear' ? '예보는 출발 10일 전부터 떠요 · ' : ''}출처 ${esc(wx.src || (wx.kind === 'forecast' ? 'Google 날씨' : 'Open-Meteo'))}</div>
     </div>` : ''}
   ${va ? `<div class="vabar"><b>${nameAvatar(t, va, 22)}${esc(va)} 일정으로 보는 중</b>${viewAsBtns(t, va)}</div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>

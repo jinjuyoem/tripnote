@@ -45,7 +45,14 @@ const cacheGet = (k) => {
 };
 const cachePut = (k, data) => { mem.set(k, data); try { localStorage.setItem('wx:' + k, JSON.stringify({ at: Date.now(), data })); } catch { /* */ } };
 
-/** { 'YYYY-MM-DD': {emoji, text, max, min, pop, kind:'forecast'|'lastyear'} } */
+function putPast(out, want, D) {
+  (D?.time || []).forEach((d, i) => {
+    if (!want.includes(d) || out[d] || D.temperature_2m_max?.[i] == null) return;
+    const [emoji, text] = fromWmo(D.weather_code?.[i]);
+    out[d] = { src: 'Open-Meteo', kind: 'past', emoji, text, max: D.temperature_2m_max[i], min: D.temperature_2m_min?.[i], rain: D.precipitation_sum?.[i] };
+  });
+}
+/** { 'YYYY-MM-DD': {emoji, text, max, min, pop, kind:'forecast'|'past'|'lastyear'} } */
 export async function tripWeather(geo, days) {
   const real = days.filter((d) => /^\d{4}-/.test(d));
   if (!geo || !real.length) return {};
@@ -83,8 +90,23 @@ export async function tripWeather(geo, days) {
       });
     } catch (e) { console.warn('forecast2', e); }
   }
-  // 2) 예보 범위 밖은 작년 같은 날짜 실제 날씨
-  const rest = real.filter((d) => !out[d]);
+  // 2) 지난 날짜는 그날 실제 날씨 (archive는 며칠 늦게 들어와서 최근 날짜는 forecast past_days로)
+  const pastD = real.filter((d) => !out[d] && d < today);
+  if (pastD.length) {
+    try {
+      const r = await withTimeout(fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${geo.lat}&longitude=${geo.lng}&start_date=${pastD[0]}&end_date=${pastD[pastD.length - 1]}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`));
+      putPast(out, pastD, (await r.json()).daily);
+    } catch (e) { console.warn('archive-past', e); }
+    const recent = pastD.filter((d) => !out[d] && Date.parse(d) > Date.now() - 90 * 864e5);
+    if (recent.length) {
+      try {
+        const r = await withTimeout(fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&past_days=92&forecast_days=1`));
+        putPast(out, recent, (await r.json()).daily);
+      } catch (e) { console.warn('recent-past', e); }
+    }
+  }
+  // 3) 예보 범위 밖 미래 날짜는 작년 같은 날짜 실제 날씨(참고용)
+  const rest = real.filter((d) => !out[d] && d >= today);
   if (rest.length) {
     const last = (d) => `${Number(d.slice(0, 4)) - 1}${d.slice(4)}`;
     try {
