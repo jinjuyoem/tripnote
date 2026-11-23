@@ -260,6 +260,7 @@ function hideSplash() {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 700); }, Math.max(0, 2000 - (performance.now() - splashStart)));
 }
 setTimeout(hideSplash, 5000); // 혹시 로딩이 오래 걸려도 5초면 닫기
+window.__booted = true;
 let renderQueued = false;
 /** 데이터가 연달아 들어올 때 한 프레임에 한 번만 다시 그리기 (끄는 중이면 끝난 뒤로) */
 function renderSoon() {
