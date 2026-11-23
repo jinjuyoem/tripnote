@@ -1183,3 +1183,4 @@ label.f[hidden]{display:none}
 .recap{overflow-x:hidden}
 .rc-hero.rc-intro{border-radius:0;width:100vw;margin:calc(-12px - var(--st,0px)) calc(50% - 50vw) 0;min-height:100svh;padding:calc(24px + var(--st,0px)) 24px 60px;box-sizing:border-box;background:linear-gradient(180deg,#E9F0FF 0%,#F6F0E2 70%,var(--fill,#F2F4F6) 100%)}
 .rc-intro .rc-glow{inset:-20%}
+.toast{z-index:120}

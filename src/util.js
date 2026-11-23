@@ -62,8 +62,15 @@ export function toast(msg) {
   document.body.appendChild(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2400);
 }
 export async function copy(text, okMsg = '복사했어요') {
-  try { await navigator.clipboard.writeText(text); toast(okMsg); }
-  catch { toast('복사가 막혀 있어요. 길게 눌러 직접 복사해 주세요.'); }
+  try { await navigator.clipboard.writeText(text); toast(okMsg); return; } catch { /* 아래 예전 방식으로 */ }
+  try {
+    // 아이폰 등에서 clipboard API가 막히면 숨긴 입력칸으로 복사
+    const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy'); ta.remove();
+    toast(ok ? okMsg : '복사가 막혀 있어요. 길게 눌러 직접 복사해 주세요.');
+  } catch { toast('복사가 막혀 있어요. 길게 눌러 직접 복사해 주세요.'); }
 }
 
 /* ---------- 중국 본토 → 고덕지도(Amap) 링크 ---------- */
