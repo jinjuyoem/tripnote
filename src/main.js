@@ -624,7 +624,9 @@ function viewTrip(t) {
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('')}</div>
     ${body}</div>`;
   const fab = { plan: ['newItem', '+ 일정 추가'], wish: ['newWish', '+ 찜하기'], flight: ['newFlight', '+ 항공권 추가'], money: ['newExp', '+ 지출 추가'] }[S.tab];
-  $('fabhost').innerHTML = fab && !(S.tab === 'plan' && S.ordering) ? `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>` : '';
+  $('fabhost').innerHTML = !fab || (S.tab === 'plan' && S.ordering) ? ''
+    : S.tab === 'plan' ? `<div class="fab fabduo"><button class="btn pri" data-act="newItem">+ 일정 추가</button><button class="btn memofab" data-act="newMemo" aria-label="메모 추가">📝 메모</button></div>`
+    : `<button class="btn pri fab" data-act="${fab[0]}">${fab[1]}</button>`;
   if (S.tab === 'plan') { drawPlanMap(t, days); ensureAirportGeo(t); fillSegments(t); loadWeather(t, days); }
   else if (S.tab === 'wish') drawWishMap(t);
   else showMap(false);
@@ -1020,7 +1022,7 @@ function viewPlan(t, days) {
     </div>` : ''}
   ${va ? `<div class="vabar"><b>${nameAvatar(t, va, 22)}${esc(va)} 일정으로 보는 중</b>${viewAsBtns(t, va)}</div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
-  <div class="planbar">${items.length > 1 ? '<span class="lphint">꾹 눌러서 순서 바꾸기</span>' : ''}<button class="ordbtn" data-act="newMemo">📝 메모 추가</button></div>
+  <div class="planbar">${items.length > 1 ? '<span class="lphint">꾹 눌러서 순서 바꾸기</span>' : ''}</div>
   ${body ? `<div class="timeline">${body}</div>`
     : va && hasFork ? `<div class="empty"><b>${esc(va)} 일정이 없어요</b></div>`
     : '<div class="empty"><b>이 날 일정이 비어 있어요</b>가고 싶은 곳을 추가해 보세요.</div>'}`;
