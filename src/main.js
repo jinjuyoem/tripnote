@@ -651,7 +651,7 @@ function viewTrip(t) {
       ${t.start ? `<span class="chip">${esc(md(t.start))}${t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : ''}</span>` : ''}
       ${dday(t) ? `<span class="chip accent">${esc(dday(t))}</span>` : ''}
       ${localTimeChip(t)}
-      ${dday(t) === '완료' ? '<button class="chip recapchip" data-act="recap">🎞 여행 리캡</button>' : ''}
+      ${recapReady(t) ? '<button class="chip recapchip" data-act="recap">🎞 여행 리캡</button>' : ''}
       <button class="avstack" data-act="editTrip" aria-label="참여자">${(t.members || []).slice(0, 5).map((u) => avatar(u, 26, t.memberNames?.[u])).join('')}${(t.members || []).length > 5 ? `<span class="av more">+${t.members.length - 5}</span>` : ''}</button>
     </div>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('')}</div>
@@ -1133,6 +1133,23 @@ function itemSpendHtml(t, i) {
 }
 
 /* ---------- 여행 리캡 ---------- */
+// 리캡 열리는 때: 돌아오는 비행기가 있으면 그 도착 시각(한국 기준), 없으면 여행 끝난 다음 날
+function returnArrival(t) {
+  const end = t.end || t.start; if (!end) return null;
+  const endM1 = fmtD(new Date(parseD(end) - 864e5));
+  const back = S.flights.filter((f) => f.arrAt && (f.kind === '오는편' || (f.depAt || '').slice(0, 10) >= endM1))
+    .sort((a, b) => (a.arrAt || '').localeCompare(b.arrAt || '')).pop();
+  return back ? new Date(back.arrAt.replace(' ', 'T')) : null;
+}
+let recapTimer = 0;
+function recapReady(t) {
+  const arr = returnArrival(t);
+  if (!arr || isNaN(arr)) return dday(t) === '완료';
+  const left = arr - Date.now();
+  clearTimeout(recapTimer);
+  if (left > 0 && left < 864e5) recapTimer = setTimeout(renderSoon, left + 1000);
+  return left <= 0;
+}
 async function openRecap(t) {
   const days = tripDays(t);
   const v = document.createElement('div'); v.className = 'recap'; v.id = 'recap';
@@ -2162,7 +2179,7 @@ function tripForm(t) {
     ${isNew ? '' : `<div class="card soft"><h3>일정 공유 링크 <small class="muted">보기 전용</small></h3>
       <p class="small muted">로그인 없이 일정만 볼 수 있는 링크예요. 부모님·친구한테 보내기 좋아요. 가계부·메모·예약번호·QR은 안 보여요. 일정을 고치면 자동으로 반영돼요.</p>
       <div id="shareOut"></div></div>`}
-    ${isNew ? '' : '<button type="button" class="btn ghost block" data-x="recap" style="margin-bottom:10px">🎞 여행 리캡 보기</button>'}
+    ${isNew || !recapReady(t) ? '' : '<button type="button" class="btn ghost block" data-x="recap" style="margin-bottom:10px">🎞 여행 리캡 보기</button>'}
     <div class="rowbtns">${isOwner ? '<button class="btn danger" data-x="del">삭제</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     const v = fval(sh); wirePills(sh);
     const guests = [...(t.guests || [])];

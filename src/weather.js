@@ -40,10 +40,10 @@ export async function geocodeCity(name) {
 const mem = new Map();
 const cacheGet = (k) => {
   if (mem.has(k)) return mem.get(k);
-  try { const v = JSON.parse(localStorage.getItem('wx:' + k) || 'null'); if (v && Date.now() - v.at < 3 * 3600e3) { mem.set(k, v.data); return v.data; } } catch { /* */ }
+  try { const v = JSON.parse(localStorage.getItem('wx:v2:' + k) || 'null'); if (v && Date.now() - v.at < 3 * 3600e3) { mem.set(k, v.data); return v.data; } } catch { /* */ }
   return null;
 };
-const cachePut = (k, data) => { mem.set(k, data); try { localStorage.setItem('wx:' + k, JSON.stringify({ at: Date.now(), data })); } catch { /* */ } };
+const cachePut = (k, data) => { mem.set(k, data); try { localStorage.setItem('wx:v2:' + k, JSON.stringify({ at: Date.now(), data })); } catch { /* */ } };
 
 function putPast(out, want, D) {
   (D?.time || []).forEach((d, i) => {
