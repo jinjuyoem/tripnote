@@ -181,6 +181,7 @@ function startData(u) {
       S.tripsLoaded = true;
       prefetchTrips();
       if (S.tripId && !trip()) openTrip(null); else renderSoon();
+      if (!S.autoRecapDone) { S.autoRecapDone = true; setTimeout(autoRecap, 2500); }
     },
     (err) => { console.error(err); S.tripsLoaded = true; toast('여행 목록을 불러오지 못했어요'); render(); },
   );
@@ -1134,23 +1135,51 @@ function itemSpendHtml(t, i) {
 
 /* ---------- 여행 리캡 ---------- */
 // 리캡 열리는 때: 돌아오는 비행기가 있으면 그 도착 시각(한국 기준), 없으면 여행 끝난 다음 날
-function returnArrival(t) {
+function returnArrival(t, flights = S.flights) {
   const end = t.end || t.start; if (!end) return null;
   const endM1 = fmtD(new Date(parseD(end) - 864e5));
-  const back = S.flights.filter((f) => f.arrAt && (f.kind === '오는편' || (f.depAt || '').slice(0, 10) >= endM1))
+  const back = flights.filter((f) => f.arrAt && (f.kind === '오는편' || (f.depAt || '').slice(0, 10) >= endM1))
     .sort((a, b) => (a.arrAt || '').localeCompare(b.arrAt || '')).pop();
   return back ? new Date(back.arrAt.replace(' ', 'T')) : null;
 }
 let recapTimer = 0;
-function recapReady(t) {
-  const arr = returnArrival(t);
+function recapReady(t, flights) {
+  const arr = returnArrival(t, flights);
   if (!arr || isNaN(arr)) return dday(t) === '완료';
   const left = arr - Date.now();
-  clearTimeout(recapTimer);
-  if (left > 0 && left < 864e5) recapTimer = setTimeout(renderSoon, left + 1000);
+  if (!flights) {
+    clearTimeout(recapTimer);
+    if (left > 0 && left < 864e5) recapTimer = setTimeout(() => { renderSoon(); autoRecap(); }, left + 1000);
+  }
   return left <= 0;
 }
+// 돌아온 뒤 앱 처음 열 때 리캡 한 번 자동으로 띄움 (끝난 지 7일 안 여행만, 여행마다 1회)
+const seenKey = (id) => 'recapSeen:' + id;
+const recapSeen = (id) => { try { return !!localStorage.getItem(seenKey(id)); } catch { return true; } };
+const markRecapSeen = (id) => { try { localStorage.setItem(seenKey(id), '1'); } catch { /* */ } };
+let autoRecapBusy = false;
+async function autoRecap() {
+  if (autoRecapBusy || $('recap') || !S.tripsLoaded) return;
+  autoRecapBusy = true;
+  try {
+    const today = fmtD(new Date()), wk = fmtD(new Date(Date.now() - 7 * 864e5));
+    const cands = S.trips.filter((t) => t.start && t.start <= today && (t.end || t.start) >= wk && !recapSeen(t.id))
+      .sort((a, b) => (b.end || b.start).localeCompare(a.end || a.start));
+    for (const t of cands) {
+      let fl = S.tripId === t.id ? S.flights : null;
+      if (!fl) { try { fl = (await getDocs(collection(db, 'trips', t.id, 'flights'))).docs.map((d) => d.data()); } catch { fl = []; } }
+      if (!recapReady(t, fl)) continue;
+      markRecapSeen(t.id);
+      if (S.tripId !== t.id) openTrip(t.id);
+      for (let i = 0; i < 30 && !(S.fresh.items && S.fresh.expenses); i++) await new Promise((r) => setTimeout(r, 100));
+      if (S.tripId === t.id && !$('recap')) openRecap(trip() || t);
+      break;
+    }
+  } finally { autoRecapBusy = false; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') autoRecap(); });
 async function openRecap(t) {
+  markRecapSeen(t.id);
   const days = tripDays(t);
   const v = document.createElement('div'); v.className = 'recap'; v.id = 'recap';
   v.innerHTML = '<div class="rc-load">여행을 돌아보는 중… 🎞</div>';
