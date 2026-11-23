@@ -1522,6 +1522,7 @@ function starsHtml(t, i) {
   return `<div class="rate" data-rate="${esc(i.id)}">
     <div class="stars" style="--v:${(mine / 5) * 100}%" aria-label="별점"><span class="sbg">★★★★★</span><span class="sfg">★★★★★</span></div>
     <span class="rtxt">${mine ? mine.toFixed(1) : '← 끌어서 별점'}</span>
+    ${mine && !i.comments?.[S.user?.uid] ? `<button class="rcmt-in" data-act="rcomment" data-id="${esc(i.id)}">💬 한줄평</button>` : ''}
     ${all.length > 1 ? `<span class="ravg">같이 평균 ★${avg.toFixed(1)} · ${all.length}명</span>` : ''}
     ${cmtHtml(t, i, mine)}
   </div>`;
@@ -1531,8 +1532,8 @@ function cmtHtml(t, i, mine) {
   const cs = Object.entries(i.comments || {}).filter(([, x]) => x);
   const my = i.comments?.[S.user?.uid] || '';
   const others = cs.filter(([u]) => u !== S.user?.uid);
-  if (!mine && !cs.length) return '';
-  return `<div class="rcmts">${mine ? `<button class="rcmt ${my ? 'has' : ''}" data-act="rcomment" data-id="${esc(i.id)}">${my ? `💬 ${esc(my)}` : '💬 한줄평 남기기'}</button>` : ''}
+  if (!(mine && my) && !others.length) return '';
+  return `<div class="rcmts">${mine && my ? `<button class="rcmt has" data-act="rcomment" data-id="${esc(i.id)}">💬 ${esc(my)}</button>` : ''}
     ${others.map(([u, x]) => `<div class="rcmt-o">${avatar(u, 16, t.memberNames?.[u])}<span>${esc(x)}</span>${i.ratings?.[u] ? `<i>★${Number(i.ratings[u]).toFixed(1)}</i>` : ''}</div>`).join('')}</div>`;
 }
 function commentSheet(t, i) {
@@ -1597,7 +1598,6 @@ function itemRow(t, i, no, list) {
   return `<div class="item ${i.done ? 'done' : ''}" style="--cat:${c[1]}" data-lp="${esc(i.id)}" ${ll(i) ? `data-act="focus" data-id="${esc(i.id)}"` : ''}>
     ${i.done ? starsHtml(t, i) : ''}<div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
       <div style="flex:1;min-width:0"><div class="ititle">${no ? `<span class="pinno" style="background:${c[1]}">${no}</span>` : ''}${esc(i.title)}</div>
-      ${i.address ? `<div class="iaddr">${esc(i.address)}</div>` : ''}
       ${i.memo ? `<div class="imemo">${esc(i.memo)}</div>` : ''}
       ${itemSpendHtml(t, i)}
       <div class="iactions"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(catLabel(i.cat || '기타'))}</span>
