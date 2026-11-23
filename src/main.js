@@ -3199,10 +3199,12 @@ function closeSegPop() {
   if (segPopOff) { document.removeEventListener('click', segPopOff, true); segPopOff = null; }
 }
 function openSegPicker(btn) {
+  const open = document.getElementById('segpop');
+  if (open && open.dataset.sid === btn.dataset.id) { closeSegPop(); return; } // 같은 버튼 다시 누르면 닫기
   closeSegPop();
   const sid = btn.dataset.id; const sg = stopMap.get(sid); if (!sg) return;
   const cur = btn.dataset.v, auto = btn.dataset.auto;
-  const pop = document.createElement('div'); pop.id = 'segpop'; pop.className = 'segpop'; pop.setAttribute('role', 'menu');
+  const pop = document.createElement('div'); pop.id = 'segpop'; pop.className = 'segpop'; pop.dataset.sid = sid; pop.setAttribute('role', 'menu');
   pop.innerHTML = `<div class="sp-h">어떻게 갈까요?</div>${Object.entries(MOVES).map(([k, v]) => {
     const r = segResult(sg.from, sg.to, k) || (k === auto ? segResult(sg.from, sg.to, 'auto') : null);
     const info = r && r.secs && !r.none ? `${fmtDur(r.secs)} · ${fmtDist(r.meters)}` : '';
@@ -3222,7 +3224,13 @@ function openSegPicker(btn) {
   pop.querySelector('[data-x=tinfo]')?.addEventListener('click', (e) => { e.stopPropagation(); closeSegPop(); transitSheet(sid); });
   setTimeout(() => {
     if (!pop.isConnected) return;
-    segPopOff = (e) => { if (!e.target.closest('#segpop')) closeSegPop(); };
+    segPopOff = (e) => {
+      if (e.target.closest('#segpop')) return;
+      // 같은 이동 수단 버튼을 다시 누르면 닫기만 (다시 열지 않음)
+      const same = e.target.closest('.segsel')?.dataset.id === sid;
+      closeSegPop();
+      if (same) { e.stopImmediatePropagation(); e.preventDefault(); }
+    };
     document.addEventListener('click', segPopOff, true);
   }, 0);
 }
