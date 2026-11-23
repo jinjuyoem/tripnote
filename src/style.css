@@ -1152,3 +1152,6 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 /* 점선 위 이동 수단 버튼과 글자 사이 띄우기 */
 .timeline > .seg{padding-left:12px}
 label.f[hidden]{display:none}
+.retbox{background:#F4F7FF;border:1px solid #DCE5FF;border-radius:12px;padding:10px 12px 2px;margin-bottom:12px}
+.retbox > .flbl{color:#2E5BFF;font-weight:600}
+.retbox[hidden]{display:none}

@@ -1901,6 +1901,7 @@ function viewFlights() {
         ${f.seat ? `<div><span>좌석</span><b>${esc(f.seat)}</b></div>` : ''}
         ${f.terminal ? `<div><span>터미널</span><b>${esc(f.terminal)}</b></div>` : ''}
         ${f.baggage ? `<div><span>수하물</span><b>${esc(f.baggage)}</b></div>` : ''}
+        ${(() => { const ex = f.expenseId && S.expenses.find((x) => x.id === f.expenseId); if (!ex) return ''; const rt = (ex.flightIds || []).length > 1; return `<div><span>금액${rt ? ' (왕복)' : ''}</span><b>${ex.cur === 'KRW' ? won(ex.amount) : `${num(ex.amount)} ${esc(ex.cur)}`}</b>${ex.vendor ? `<small class="muted">${esc(ex.vendor)}</small>` : ''}</div>`; })()}
       </div>
       ${liveHtml(f)}
       ${f.memo ? `<div class="imemo" style="margin-top:8px">${esc(f.memo)}</div>` : ''}
@@ -2486,8 +2487,13 @@ function flightForm(t, f) {
   // 탑승자 후보: 정산용 이름 + 앱 참여자 이름 + 이미 지정된 사람
   const whoOpts = [...new Set([...peopleOf(t), ...(f.who || [])].filter(Boolean))];
   const whoSel = f.who || (f.by && t.memberNames?.[f.by] ? [t.memberNames[f.by]] : []);
+  const linked = f.expenseId ? S.expenses.find((e) => e.id === f.expenseId) : null;
+  const people = peopleOf(t); const spCurs = [...new Set([t.currency || 'KRW', 'KRW'])];
+  const rDef = t.end ? t.end + 'T15:00' : '';
+  const legs = linked ? (linked.flightIds || []).filter((id) => S.flights.some((x) => x.id === id)) : [];
   openSheet(`<h2>${isNew ? '항공권 추가' : '항공권 수정'}</h2>
-    <label class="f"><span>구분</span>${pills('kind', ['가는편', '오는편', '경유·기타'], f.kind)}</label>
+    ${isNew ? '<div class="mseg" id="tripType"><button type="button" class="on" data-r="0">편도</button><button type="button" data-r="1">왕복</button></div>' : ''}
+    <label class="f" id="kindRow"><span>구분</span>${pills('kind', ['가는편', '오는편', '경유·기타'], f.kind)}</label>
     <label class="f"><span>탑승자 (이 비행기 타는 사람)</span>${pills('who', whoOpts, whoSel, true)}</label>
     <div class="two"><label class="f"><span>항공사</span><input class="inp" name="airline" value="${esc(f.airline)}" placeholder="예: 제주항공"></label>
       <label class="f"><span>편명</span><div class="fnrow"><input class="inp mono" name="flightNo" value="${esc(f.flightNo)}" placeholder="예: 7C1301" autocapitalize="characters"><button type="button" class="btn dark small" data-x="lookup">불러오기</button></div></label></div>
@@ -2500,6 +2506,23 @@ function flightForm(t, f) {
       <label class="f"><span>좌석</span><input class="inp" name="seat" value="${esc(f.seat)}" placeholder="예: 23A"></label></div>
     <div class="two"><label class="f"><span>터미널</span><input class="inp" name="terminal" value="${esc(f.terminal)}" placeholder="예: T1"></label>
       <label class="f"><span>수하물</span><input class="inp" name="baggage" value="${esc(f.baggage)}" placeholder="예: 15kg"></label></div>
+    ${isNew ? `<div class="retbox" id="retBox" hidden><span class="flbl">↩︎ 오는편</span>
+      <label class="f"><span>편명</span><div class="fnrow"><input class="inp mono" name="rFlightNo" placeholder="예: 7C1302" autocapitalize="characters"><button type="button" class="btn dark small" data-x="rlookup">불러오기</button></div></label>
+      <div class="two"><label class="f"><span>출발 공항</span><input class="inp mono" name="rFrom" placeholder="KIX" autocapitalize="characters"></label>
+        <label class="f"><span>도착 공항</span><input class="inp mono" name="rTo" placeholder="ICN" autocapitalize="characters"></label></div>
+      <div class="f"><span class="flbl">출발 (출발지 현지 시각)</span><div class="two"><input class="inp" type="date" name="rDepDate" value="${esc(rDef.slice(0, 10))}">${timeField('rDepTime', rDef.slice(11, 16), '출발 시간')}</div></div>
+      <div class="f"><span class="flbl">도착 (도착지 현지 시각)</span><div class="two"><input class="inp" type="date" name="rArrDate" value="${esc(rDef.slice(0, 10))}">${timeField('rArrTime', rDef ? '17:00' : '', '도착 시간')}</div></div>
+      <div class="two"><label class="f"><span>좌석</span><input class="inp" name="rSeat" placeholder="예: 23A"></label>
+        <label class="f"><span>터미널</span><input class="inp" name="rTerminal" placeholder="예: T1"></label></div>
+      <div class="hint">항공사·예약번호·수하물·탑승자는 가는편이랑 같게 저장돼요.</div></div>` : ''}
+    <div class="spendbox"><span class="flbl">💸 항공권 금액 (가계부에 자동 기록)</span>
+      <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || 'KRW')}</div>
+      <div id="spendHint" class="hint">${legs.length > 1 ? '왕복으로 한 번에 결제한 금액이에요. 고치면 가는편·오는편 둘 다 반영돼요.' : ''}</div>
+      <div style="margin-top:8px"><span class="flbl">결제처 (항공사·여행사)</span><input class="inp" name="svendor" value="${esc(linked?.vendor || '')}" placeholder="비우면 항공사 이름" list="fvendorList" autocomplete="off">
+        <datalist id="fvendorList">${[...new Set(S.expenses.map((x) => x.vendor).filter(Boolean))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
+      <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
+      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
+      <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || (whoSel.length ? whoSel.filter((x) => people.includes(x)) : people), true)}</div>` : ''}</div>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="체크인 시간, 탑승 게이트…">${esc(f.memo)}</textarea></label>
     <div class="f"><span class="flbl">체크인 QR · 모바일 탑승권 사진 (최대 4장)</span>
       <div class="qredit" id="qrEdit"></div>
@@ -2507,6 +2530,46 @@ function flightForm(t, f) {
       <div class="hint">캡처한 QR이나 탑승권 화면을 넣어두면 공항에서 바로 꺼내 볼 수 있어요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); wireTimeFields(sh, '비행기 시간'); const v = fval(sh);
+    // 왕복: 오는편 칸 열기, 공항은 가는편 반대로 채움
+    let round = false;
+    const fillRet = () => {
+      if (!round) return;
+      const rf = sh.querySelector('[name=rFrom]'), rt = sh.querySelector('[name=rTo]');
+      if (!rf.dataset.typed) rf.value = v('to').toUpperCase();
+      if (!rt.dataset.typed) rt.value = v('from').toUpperCase();
+    };
+    sh.querySelector('#tripType')?.addEventListener('click', (ev) => {
+      const bt = ev.target.closest('[data-r]'); if (!bt) return;
+      round = bt.dataset.r === '1';
+      sh.querySelectorAll('#tripType button').forEach((x) => x.classList.toggle('on', x === bt));
+      sh.querySelector('#retBox').hidden = !round; sh.querySelector('#kindRow').hidden = round;
+      sh.querySelector('#spendHint').textContent = round ? '왕복 금액을 한 번에 적으면 가계부에 한 줄로 들어가요.' : '';
+      fillRet();
+    });
+    ['rFrom', 'rTo'].forEach((n) => sh.querySelector(`[name=${n}]`)?.addEventListener('input', (ev) => { ev.target.dataset.typed = '1'; }));
+    ['from', 'to'].forEach((n) => sh.querySelector(`[name=${n}]`).addEventListener('input', fillRet));
+    // 오는편 불러오기
+    sh.querySelector('[data-x=rlookup]')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const b = e.currentTarget; const no = v('rFlightNo').toUpperCase().replace(/\s/g, '');
+      const date = sh.querySelector('[name=rDepDate]').value || t.end;
+      if (!no) return toast('오는편 편명을 먼저 적어 주세요');
+      if (!date) return toast('오는편 출발 날짜를 먼저 골라 주세요');
+      b.disabled = true; b.textContent = '찾는 중…';
+      try {
+        const m = (await fetchFlight(no, date))[0];
+        if (!m) { toast(`${date} ${no} 운항 정보를 못 찾았어요`); return; }
+        const setV = (n, val) => { if (val) sh.querySelector(`[name=${n}]`).value = val; };
+        const setT = (n, val) => { if (!val) return; const hid = sh.querySelector(`[name=${n}]`); hid.value = val; const tb = sh.querySelector(`[data-timefield=${n}]`); tb.textContent = val; tb.classList.remove('empty'); };
+        sh.querySelector('[name=rFlightNo]').value = no;
+        setV('rFrom', m.dep.iata); setV('rTo', m.arr.iata);
+        const d0 = lt(m.dep.sched), a0 = lt(m.arr.sched);
+        if (d0) { setV('rDepDate', d0.d); setT('rDepTime', d0.t); }
+        if (a0) { setV('rArrDate', a0.d); setT('rArrTime', a0.t); }
+        if (m.dep.terminal) setV('rTerminal', `T${String(m.dep.terminal).replace(/^T/i, '')}`);
+        toast(`✈️ ${m.dep.iata} ${d0?.t || ''} → ${m.arr.iata} ${a0?.t || ''} 불러왔어요`);
+      } catch (err) { toast(flightErr(err)); } finally { b.disabled = false; b.textContent = '불러오기'; }
+    });
     // 출발일 고르면 도착일 비어 있을 때 같은 날로
     // 출발을 바꾸면 도착을 '출발 + 같은 비행시간'으로 따라 맞춤 (기본 2시간). 도착을 직접 고치면 그 간격 유지
     const getDT = (p) => { const d = sh.querySelector(`[name=${p}Date]`).value, h = sh.querySelector(`[name=${p}Time]`).value; return d && h ? `${d}T${h}` : ''; };
@@ -2589,8 +2652,40 @@ function flightForm(t, f) {
         who: pillVal(sh, 'who'),
       };
       const fid = isNew ? uid() : f.id;
+      let rid = null, rData = null;
+      if (isNew && round) {
+        if (!v('rDepDate') || !v('rDepTime')) return toast('오는편 출발 날짜와 시간을 넣어 주세요');
+        data.kind = '가는편';
+        rid = uid();
+        rData = { ...data, kind: '오는편', flightNo: v('rFlightNo').toUpperCase(), from: v('rFrom').toUpperCase(), to: v('rTo').toUpperCase(),
+          depAt: `${v('rDepDate')}T${v('rDepTime')}`, arrAt: v('rArrDate') && v('rArrTime') ? `${v('rArrDate')}T${v('rArrTime')}` : '',
+          seat: v('rSeat'), terminal: v('rTerminal'), qrIds: [] };
+      }
       const b = writeBatch(db);
       data.qrIds = saveQrs(b, fid);
+      // 항공권 금액 → 가계부 (왕복이면 지출 하나에 두 편 연결)
+      const spend = Number(sh.querySelector('[name=spend]').value);
+      let expenseId = linked ? f.expenseId : null;
+      const legIds = rid ? [fid, rid] : (linked ? (linked.flightIds || [fid]) : [fid]);
+      if (spend > 0) {
+        const route = rid ? `${data.from || '?'}⇄${data.to || '?'} 왕복 항공권` : `${data.from || '?'}→${data.to || '?'} 항공권`;
+        const exp = {
+          title: linked?.title || route, amount: spend, cur: pillVal(sh, 'scur')[0] || 'KRW', cat: '항공',
+          vendor: v('svendor') || data.airline || null, pay: pillVal(sh, 'spay')[0] || null,
+          payer: pillVal(sh, 'spayer')[0] || linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]),
+          split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(),
+          date: linked?.date || data.depAt.slice(0, 10), flightIds: legIds,
+        };
+        if (exp.pay) try { localStorage.setItem('payMethod', exp.pay); } catch {}
+        if (linked) b.update(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
+        else { expenseId = uid(); b.set(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
+      } else if (linked) {
+        b.delete(doc(db, 'trips', t.id, 'expenses', expenseId));
+        legs.filter((id) => id !== fid).forEach((id) => b.update(doc(db, 'trips', t.id, 'flights', id), { expenseId: null }));
+        expenseId = null;
+      }
+      data.expenseId = expenseId;
+      if (rData) { rData.expenseId = expenseId; b.set(doc(db, 'trips', t.id, 'flights', rid), { ...rData, createdAt: Date.now(), by: S.user.uid }); }
       if (isNew) b.set(doc(db, 'trips', t.id, 'flights', fid), { ...data, createdAt: Date.now(), by: S.user.uid });
       else {
         // 날짜·시간이 바뀌면 순서 고정을 풀고 다시 시간 기준으로
@@ -2601,8 +2696,13 @@ function flightForm(t, f) {
       closeSheet();
       commit(b);
     };
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`${f.from || ''}→${f.to || ''} 항공권을 삭제할까요?${(f.qrIds || []).length ? ' QR 사진도 같이 지워져요.' : ''}`, '삭제', () => {
+    const others = legs.filter((id) => id !== f.id);
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`${f.from || ''}→${f.to || ''} 항공권을 삭제할까요?${(f.qrIds || []).length ? ' QR 사진도 같이 지워져요.' : ''}${linked ? (others.length ? ' 왕복 지출은 가계부에 남아요.' : ' 연결된 지출도 같이 지워져요.') : ''}`, '삭제', () => {
       const b = writeBatch(db);
+      if (linked) {
+        if (others.length) b.update(doc(db, 'trips', t.id, 'expenses', linked.id), { flightIds: others });
+        else b.delete(doc(db, 'trips', t.id, 'expenses', linked.id));
+      }
       for (const id of f.qrIds || []) b.delete(doc(db, 'trips', t.id, 'files', id));
       b.delete(doc(db, 'trips', t.id, 'flights', f.id));
       commit(b);
@@ -2680,7 +2780,7 @@ function expForm(t, e) {
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
       else await write(() => updateDoc(doc(db, 'trips', t.id, 'expenses', e.id), data));
     };
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${e.title}' 지출을 삭제할까요?`, '삭제', () => { const b = writeBatch(db); b.delete(doc(db, 'trips', t.id, 'expenses', e.id)); if (e.itemId && S.items.some((i) => i.id === e.itemId)) b.update(doc(db, 'trips', t.id, 'items', e.itemId), { expenseId: null }); commit(b); }));
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${e.title}' 지출을 삭제할까요?`, '삭제', () => { const b = writeBatch(db); b.delete(doc(db, 'trips', t.id, 'expenses', e.id)); if (e.itemId && S.items.some((i) => i.id === e.itemId)) b.update(doc(db, 'trips', t.id, 'items', e.itemId), { expenseId: null }); (e.flightIds || []).filter((id) => S.flights.some((x) => x.id === id && x.expenseId === e.id)).forEach((id) => b.update(doc(db, 'trips', t.id, 'flights', id), { expenseId: null })); commit(b); }));
   });
 }
 
