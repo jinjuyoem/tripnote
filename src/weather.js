@@ -62,7 +62,7 @@ export async function tripWeather(geo, days) {
         const d = ymd(f.displayDate); if (!real.includes(d)) continue;
         const part = f.daytimeForecast?.weatherCondition ? f.daytimeForecast : f.nighttimeForecast || {};
         out[d] = {
-          kind: 'forecast', emoji: emojiFromType(part.weatherCondition?.type), text: part.weatherCondition?.description?.text || '',
+          src: 'Google 날씨', kind: 'forecast', emoji: emojiFromType(part.weatherCondition?.type), text: part.weatherCondition?.description?.text || '',
           max: f.maxTemperature?.degrees, min: f.minTemperature?.degrees, pop: part.precipitation?.probability?.percent,
         };
       }
@@ -79,7 +79,7 @@ export async function tripWeather(geo, days) {
       (D.time || []).forEach((d, i) => {
         if (!need.includes(d)) return;
         const [emoji, text] = fromWmo(D.weather_code?.[i]);
-        out[d] = { kind: 'forecast', emoji, text, max: D.temperature_2m_max?.[i], min: D.temperature_2m_min?.[i], pop: D.precipitation_probability_max?.[i] };
+        out[d] = { src: 'Open-Meteo', kind: 'forecast', emoji, text, max: D.temperature_2m_max?.[i], min: D.temperature_2m_min?.[i], pop: D.precipitation_probability_max?.[i] };
       });
     } catch (e) { console.warn('forecast2', e); }
   }
@@ -93,7 +93,7 @@ export async function tripWeather(geo, days) {
       (D.time || []).forEach((t, i) => {
         const d = `${Number(t.slice(0, 4)) + 1}${t.slice(4)}`; if (!rest.includes(d)) return;
         const [emoji, text] = fromWmo(D.weather_code?.[i]);
-        out[d] = { kind: 'lastyear', emoji, text, max: D.temperature_2m_max?.[i], min: D.temperature_2m_min?.[i], rain: D.precipitation_sum?.[i] };
+        out[d] = { src: 'Open-Meteo', kind: 'lastyear', emoji, text, max: D.temperature_2m_max?.[i], min: D.temperature_2m_min?.[i], rain: D.precipitation_sum?.[i] };
       });
     } catch (e) { console.warn('archive', e); }
   }

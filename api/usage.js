@@ -32,6 +32,22 @@ export function ptStarts(now = new Date()) {
   return { day, month, nextDay };
 }
 
+/** 하루 단위 시리즈 → [{date:'YYYY-MM-DD'(PT), c:{항목:성공 수}}] (버킷 끝 = PT 자정이라 하루 빼서 날짜) */
+export function dailySeries(series = []) {
+  const by = {};
+  const ptDate = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+  for (const s of series) {
+    if (!/^2/.test(s.metric?.labels?.response_code_class || '')) continue;
+    const m = METERS.find((x) => x.re.test(`${s.resource?.labels?.service || ''} ${s.resource?.labels?.method || ''}`)); if (!m) continue;
+    for (const p of s.points || []) {
+      const end = Date.parse(p.interval?.endTime); if (!end) continue;
+      const d = ptDate(end - 36e5 * 12); // 버킷 끝(자정)에서 반나절 빼면 그날
+      const c = (by[d] ||= {}); c[m.id] = (c[m.id] || 0) + Number(p.value?.int64Value ?? p.value?.doubleValue ?? 0);
+    }
+  }
+  return by;
+}
+
 /** Monitoring 응답(timeSeries) → 항목별 {ok, err} 합계 */
 export function sumSeries(series = []) {
   const out = {}; const other = {};
@@ -69,8 +85,8 @@ async function accessToken(sa) {
   return (await r.json()).access_token;
 }
 
-async function requestCounts(tok, project, start, end) {
-  const secs = Math.max(60, Math.ceil((end - start) / 1000));
+async function requestCounts(tok, project, start, end, period) {
+  const secs = period || Math.max(60, Math.ceil((end - start) / 1000));
   const q = new URLSearchParams({
     filter: 'metric.type="serviceruntime.googleapis.com/api/request_count" AND resource.type="consumed_api"',
     'interval.startTime': start.toISOString(), 'interval.endTime': end.toISOString(),
@@ -110,15 +126,22 @@ export default async function handler(req, res) {
     const { day, month, nextDay } = ptStarts(now);
     const tok = await accessToken(sa);
     const project = sa.project_id || PROJECT;
-    const [d, m] = await Promise.all([requestCounts(tok, project, day, now), requestCounts(tok, project, month, now)]);
+    const from = new Date(day.getTime() - 29 * 864e5);
+    const [d, m, hist] = await Promise.all([requestCounts(tok, project, day, now), requestCounts(tok, project, month, now), requestCounts(tok, project, from, day, 86400).catch(() => [])]);
     const today = sumSeries(d); const mon = sumSeries(m);
+    // 최근 30일 일자별 (지난 29일 + 오늘 지금까지)
+    const byDay = dailySeries(hist);
+    const ptDate = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+    const daily = [];
+    for (let k = 29; k >= 1; k--) { const dt = ptDate(day.getTime() - k * 864e5 + 36e5 * 12); daily.push({ date: dt, c: byDay[dt] || {} }); }
+    daily.push({ date: ptDate(day.getTime() + 36e5 * 12), c: Object.fromEntries(Object.entries(today.out).map(([k, v]) => [k, v.ok])), today: true });
     const meters = METERS.map((x) => ({
       id: x.id, name: x.name, sku: x.sku, dayCap: x.day, monthFree: x.month,
       today: today.out[x.id]?.ok || 0, todayErr: today.out[x.id]?.err || 0,
       month: mon.out[x.id]?.ok || 0,
     }));
     const other = Object.entries(mon.other).map(([k, v]) => ({ name: k, month: v.ok })).filter((x) => x.month).sort((a, b) => b.month - a.month).slice(0, 8);
-    return res.status(200).json({ at: now.toISOString(), resetAt: nextDay.toISOString(), meters, other });
+    return res.status(200).json({ at: now.toISOString(), resetAt: nextDay.toISOString(), meters, other, daily });
   } catch (e) {
     console.error(e);
     return res.status(502).json({ error: 'upstream', detail: String(e?.message || e).slice(0, 200) });

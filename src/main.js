@@ -24,7 +24,7 @@ const S = {
   access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
-  checks: [], packMine: false, wishSort: 'new', fresh: {}, share: null,
+  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', fresh: {}, share: null,
 };
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
@@ -36,6 +36,7 @@ const isWelcome = () => { try { return localStorage.getItem('tn_welcome') === '1
 
 const $ = (id) => document.getElementById(id);
 const trip = () => S.trips.find((t) => t.id === S.tripId);
+const pairedFlights = new Set(); // 출발·도착을 한 상자로 보여주는 비행편 id
 const me = () => S.profiles.get(S.user?.uid)?.name || S.user?.displayName || S.user?.email?.split('@')[0] || '나';
 
 /* 프로필 사진: 직접 올린 사진 > 구글 사진 > 이름 첫 글자 */
@@ -86,7 +87,7 @@ document.querySelector('#app').innerHTML = `
   </div>
   <main id="view"></main>
   <div id="fabhost"></div>
-  <div id="netbadge" class="netbadge" hidden>📴 오프라인 · 저장된 내용을 보여줘요. 고친 건 연결되면 저장돼요</div>`;
+  <div id="netbadge" class="netbadge" hidden><i></i><b>오프라인 모드</b><span>바꾼 내용은 연결되면 자동으로 저장돼요</span></div>`;
 
 let mapCtl = null; let mapInitP = null;
 async function ensureMap() {
@@ -256,7 +257,7 @@ let splashGone = false;
 function hideSplash() {
   if (splashGone) return; splashGone = true;
   const el = document.getElementById('splash'); if (!el) return;
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 700); }, Math.max(0, 2800 - (performance.now() - splashStart)));
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 700); }, Math.max(0, 2000 - (performance.now() - splashStart)));
 }
 setTimeout(hideSplash, 5000); // 혹시 로딩이 오래 걸려도 5초면 닫기
 let renderQueued = false;
@@ -354,6 +355,7 @@ function usageHtml(u) {
   };
   const n = (x) => Number(x || 0).toLocaleString('ko-KR');
   return `<p class="small muted" style="margin:0 2px 8px">오늘 한도 리셋까지 ${hh}시간 ${mm}분 · 몇 분 늦게 반영돼요</p>
+    ${dailyChartHtml(u)}
     ${u.meters.map((m) => `<div class="urow">
       <div class="uhead"><b>${esc(m.name)}</b>${m.todayErr ? `<span class="ublock">막힘·오류 ${n(m.todayErr)}</span>` : ''}</div>
       ${m.dayCap ? `<div class="uline"><span>오늘</span><span>${n(m.today)} / ${n(m.dayCap)}</span></div>${bar(m.today, m.dayCap)}` : `<div class="uline"><span>오늘</span><span>${n(m.today)}</span></div>`}
@@ -362,6 +364,37 @@ function usageHtml(u) {
     ${u.other?.length ? `<details class="uother"><summary class="small muted">그 밖의 API (이번 달)</summary>${u.other.map((o) => `<div class="uline small"><span>${esc(o.name)}</span><span>${n(o.month)}</span></div>`).join('')}</details>` : ''}
     <p class="small muted" style="margin:8px 2px 0">요청 수 기준이라 실제 청구와 조금 다를 수 있어요. 정확한 금액은 GCP 결제 보고서에서 확인.</p>`;
 }
+/** 최근 30일 일자별 요청 수 (항목별 쌓은 막대). 막대 누르면 그날 내역 */
+const UCOLORS = { map: '#2E5BFF', ac: '#7FA0FF', place: '#FFB547', text: '#F0532D', route: '#0A9E62', wx: '#A23ED1', geo: '#8B95A1' };
+function dailyChartHtml(u) {
+  const days = u.daily || []; if (!days.length) return '';
+  const ids = u.meters.map((m) => m.id);
+  const tot = (d) => ids.reduce((a, k) => a + (d.c[k] || 0), 0);
+  const max = Math.max(1, ...days.map(tot));
+  const W = 300, H = 120, gap = 2, bw = (W - gap * (days.length - 1)) / days.length;
+  const bars = days.map((d, k) => {
+    let y = H; const x = k * (bw + gap);
+    const segs = ids.map((id) => { const v = d.c[id] || 0; if (!v) return ''; const h = (v / max) * (H - 4); y -= h; return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" fill="${UCOLORS[id] || '#888'}"/>`; }).join('');
+    return `<g class="udb${d.today ? ' today' : ''}" data-k="${k}">${segs}<rect x="${x.toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${H}" fill="transparent"/></g>`;
+  }).join('');
+  const lab = (d) => d.date.slice(5).replace('-', '/');
+  const n = (x) => Number(x || 0).toLocaleString('ko-KR');
+  const sumAll = days.reduce((a, d) => a + tot(d), 0);
+  return `<div class="udaily" data-days='${esc(JSON.stringify(days.map((d) => ({ l: lab(d), c: d.c, t: d.today ? 1 : 0 }))))}'>
+    <div class="uline"><b>최근 30일 요청 수</b><span>합계 ${n(sumAll)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="udsvg">${[0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${H - (H - 4) * f}" y2="${H - (H - 4) * f}" class="udgrid"/>`).join('')}${bars}</svg>
+    <div class="udax"><span>${lab(days[0])}</span><span>최고 ${n(max)}/일</span><span>오늘</span></div>
+    <div class="udleg">${u.meters.map((m) => `<span><i style="background:${UCOLORS[m.id] || '#888'}"></i>${esc(m.name)}</span>`).join('')}</div>
+    <div class="uddet small muted">막대를 누르면 그날 내역이 보여요</div></div>`;
+}
+document.addEventListener('click', (e) => {
+  const g = e.target.closest('.udaily .udb'); if (!g) return;
+  const box = g.closest('.udaily'); const days = JSON.parse(box.dataset.days || '[]'); const d = days[+g.dataset.k]; if (!d) return;
+  box.querySelectorAll('.udb').forEach((x) => x.classList.toggle('sel', x === g));
+  const names = Object.fromEntries([...box.querySelectorAll('.udleg span')].map((s, k) => [Object.keys(UCOLORS)[k], s.textContent]));
+  const rows = Object.entries(d.c).filter(([, v]) => v).sort((a, b) => b[1] - a[1]);
+  box.querySelector('.uddet').innerHTML = `<b>${esc(d.l)}${d.t ? ' (오늘)' : ''}</b> · ${rows.length ? rows.map(([k, v]) => `${esc(names[k] || k)} ${Number(v).toLocaleString('ko-KR')}`).join(' · ') : '사용 없음'}`;
+});
 async function paintUsage(box, force) {
   if (!box) return;
   if (!usageCache || force) box.innerHTML = '<p class="small muted">불러오는 중…</p>';
@@ -552,7 +585,7 @@ function guideSheet() {
       <li><span>👆</span><div><b>순서 바꾸기</b>일정을 꾹 누르고 끌어서 옮겨요. 항공편도 옮길 수 있어요.</div></li>
       <li><span>↙↘</span><div><b>따로 다니기</b>일정의 '누구랑?'에서 일부만 고르면 사람별 칸으로 나뉘어요. '○○ 일정' 버튼으로 한 사람 동선만 볼 수 있어요.</div></li>
       <li><span>🛫</span><div><b>항공권</b>탑승자와 체크인 QR 사진을 넣어 두면 공항에서 크게 볼 수 있어요.</div></li>
-      <li><span>💸</span><div><b>가계부·정산</b>일정에 쓴 돈을 적으면 가계부에 들어가고, 정산 탭에서 누가 누구한테 얼마 보낼지 알려줘요.</div></li>
+      <li><span>💸</span><div><b>가계부·정산</b>일정에 쓴 돈을 적으면 가계부에 들어가고, 가계부의 '정산'에서 누가 누구한테 얼마 보낼지 알려줘요.</div></li>
       <li><span>⭐</span><div><b>별점</b>다녀온 일정에서 '완료'를 누르고 별을 끌어서 매겨요.</div></li>
       <li><span>🚕</span><div><b>이동·택시</b>장소 사이 '🚶 도보' 버튼을 누르면 이동 수단을 바꿀 수 있어요. 차를 고르면 택시 앱으로 바로 넘어가요.</div></li>
       <li><span>✈️</span><div><b>편명 불러오기·상태 체크</b>항공권에 편명만 넣고 불러오기를 누르면 시간이 채워지고, 카드의 상태 체크로 지연·게이트를 볼 수 있어요.</div></li>
@@ -604,14 +637,13 @@ function viewTrip(t) {
   $('hdr').innerHTML = `<button class="iconbtn" data-act="home" aria-label="뒤로">${I.back}</button><h1>${esc(t.name)}</h1>
     <button class="iconbtn" data-act="editTrip" aria-label="설정">${I.gear}</button>`;
   $('banner').innerHTML = '';
-  const tabs = [['plan', '일정'], ['wish', '찜'], ['flight', '항공'], ['pack', '준비물'], ['money', '가계부'], ['settle', '정산']];
+  const tabs = [['plan', '일정'], ['wish', '찜'], ['flight', '항공'], ['pack', '준비물'], ['money', '가계부']];
   let body = '';
   if (S.tab === 'plan') body = viewPlan(t, days);
   else if (S.tab === 'wish') body = viewWish(t);
   else if (S.tab === 'flight') body = viewFlights(t);
   else if (S.tab === 'pack') body = viewPack(t);
-  else if (S.tab === 'money') body = viewMoney(t);
-  else body = viewSettle(t);
+  else body = viewMoney(t);
   $('view').innerHTML = `<div class="wrap">
     <div class="tripmeta">
       ${t.city ? `<span class="chip">📍 ${esc(t.city)}</span>` : ''}
@@ -675,6 +707,8 @@ function insertPos(d, time, excludeId) {
 /** 드래그로 옮긴 결과(새 순서의 id 목록) 저장 — 순서가 시간보다 우선 */
 /** 끌어 놓은 뒤 순서 저장: 일정은 pos, 항공편은 그 자리(posDep/posArr)에 고정 */
 async function placeRows(t, tokens, movedTok) {
+  // 한 상자로 합친 비행편은 도착 줄도 출발 바로 뒤로 같이 옮김
+  tokens = tokens.flatMap((tk) => { const m = /^F:(.+)~dep$/.exec(tk); return m && pairedFlights.has(m[1]) ? [tk, `F:${m[1]}~arr`] : [tk]; });
   const d = S.day; const all = dayItems(d);
   const fls = dayFlights(d);
   const order = tokens.map((tk) => (tk.startsWith('F:')
@@ -840,14 +874,14 @@ function planRows(d) {
 function rowStop(r) {
   if (r.kind === 'item') {
     const i = r.i; if (!ll(i)) return null;
-    return { id: i.id, lat: i.lat, lng: i.lng, time: i.time, title: i.title, move: i.move, moveMode: i.moveMode, _col: 'items', _doc: i.id, _mk: 'move', _mmk: 'moveMode' };
+    return { id: i.id, lat: i.lat, lng: i.lng, time: i.time, title: i.title, move: i.move, moveMode: i.moveMode, _col: 'items', _doc: i.id, _mk: 'move', _mmk: 'moveMode', _tk: 'tinfo' };
   }
   const f = r.f; const dep = f._kind === 'dep'; const g = dep ? f.depGeo : f.arrGeo;
   if (!g) return null;
   return {
     id: `${f.id}~${f._kind}`, lat: g.lat, lng: g.lng, time: r.time, title: `${dep ? f.from : f.to} 공항`, air: f._kind,
     move: dep ? f.moveDep : f.moveArr, moveMode: dep ? f.moveModeDep : f.moveModeArr,
-    _col: 'flights', _doc: f.id, _mk: dep ? 'moveDep' : 'moveArr', _mmk: dep ? 'moveModeDep' : 'moveModeArr',
+    _col: 'flights', _doc: f.id, _mk: dep ? 'moveDep' : 'moveArr', _mmk: dep ? 'moveModeDep' : 'moveModeArr', _tk: dep ? 'tinfoDep' : 'tinfoArr',
   };
 }
 /** 정산·동행 인원 = 초대 링크로 참여한 사람 */
@@ -993,6 +1027,9 @@ function viewPlan(t, days) {
   let n = 0;
   const pinNo = new Map(); items.forEach((i) => { if (ll(i)) pinNo.set(i.id, ++n); });
   stopMap.clear(); shownSegs = [];
+  // 같은 날 출발·도착이 바로 붙어 있으면 한 상자로 (도착 줄은 숨김)
+  pairedFlights.clear();
+  if (!S.ordering) allRows.forEach((r, k) => { const nx = allRows[k + 1]; if (r.kind === 'flight' && r.f._kind === 'dep' && nx?.kind === 'flight' && nx.f.id === r.f.id && nx.f._kind === 'arr') pairedFlights.add(r.f.id); });
   const rowHtml = (r, seg) => (seg ? segRow(t, seg[0], seg[1]) : '') + (r.kind === 'flight' ? flightRow(r.f, S.ordering) : itemRow(t, r.i, pinNo.get(r.i.id), items));
   let body = '';
   if (S.ordering) body = allRows.map((r) => rowHtml(r, null)).join('');
@@ -1008,8 +1045,8 @@ function viewPlan(t, days) {
   const W = S.weatherFor === t.id ? S.weather : {};
   const wx = W[S.day];
   return `<div class="days">${days.map((d, idx) => {
-    const c = dayItems(d).length; const w = W[d];
-    return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}${c ? ' · ' + c : ''}</span>${w ? `<i class="dwx wx-${wxKind(w.emoji)}">${w.emoji} ${Math.round(w.max)}°</i>` : ''}</button>`;
+    const w = W[d];
+    return `<button class="day ${d === S.day ? 'on' : ''}" data-act="day" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><b><i class="ddot"></i>Day ${idx + 1}</b><span>${d.startsWith('day') ? '' : esc(md(d))}</span>${w ? `<i class="dwx wx-${wxKind(w.emoji)}">${w.emoji} ${Math.round(w.max)}°</i>` : ''}</button>`;
   }).join('')}</div>
   ${wx ? `<div class="wxcard ${wx.kind} wx-${wxKind(wx.emoji)}">
       <div class="wxc-l"><div class="wxc-place">${esc(t.city || '여행지')}${S.day && !S.day.startsWith('day') ? ` · ${esc(md(S.day))}` : ''}</div>
@@ -1018,7 +1055,7 @@ function viewPlan(t, days) {
         <div class="wxc-hl">최고 ${Math.round(wx.max)}° · 최저 ${Math.round(wx.min)}°</div></div>
       <div class="wxc-r"><span class="wxc-e">${wx.emoji}</span>
         <span class="wxc-sub">${wx.kind === 'forecast' ? (wx.pop != null ? `☂︎ ${wx.pop}%` : '예보') : `작년 이맘때${wx.rain ? ` · 비 ${Math.round(wx.rain)}mm` : ''}`}</span></div>
-      ${wx.kind === 'forecast' ? '' : '<div class="wxc-note">예보는 출발 10일 전부터 떠요</div>'}
+      <div class="wxc-note">${wx.kind === 'forecast' ? '' : '예보는 출발 10일 전부터 떠요 · '}출처 ${esc(wx.src || (wx.kind === 'forecast' ? 'Google 날씨' : 'Open-Meteo'))}</div>
     </div>` : ''}
   ${va ? `<div class="vabar"><b>${nameAvatar(t, va, 22)}${esc(va)} 일정으로 보는 중</b>${viewAsBtns(t, va)}</div>` : ''}
   <div id="daysum">${daySummaryHtml(t, S.day)}</div>
@@ -1127,6 +1164,7 @@ async function openRecap(t) {
   const ppl = peopleOf(t).length || 1;
   const byCat = {}; S.expenses.forEach((e) => { byCat[e.cat || '기타'] = (byCat[e.cat || '기타'] || 0) + toKRW(t, e); });
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  const ttype = tripType(t);
   const topSpend = [...per].sort((a, b) => b.spent - a.spent)[0];
   const topWalk = [...per].sort((a, b) => b.walkS - a.walkS)[0];
   const done = S.items.filter((i) => i.kind !== 'memo' && i.done).length;
@@ -1141,32 +1179,35 @@ async function openRecap(t) {
     ...per.map((x, i) => `${dayLabel(x, i)}: ${x.items.map((it) => it.title).join(' → ') || '-'}`)].join('\n');
   v.innerHTML = `<div class="rc-in">
     <div class="rc-top"><button class="qv-x" data-rc="x">닫기</button></div>
-    <div class="rc-hero"><div class="rc-city">${esc(t.city || 'TRIP')}</div><h1>${esc(t.name)}</h1>
+    <div class="rc-hero"><div class="rc-glow"></div><div class="rc-city">${esc(t.city || 'TRIP')}</div><h1>${esc(t.name)}</h1>
       <div class="rc-dates">${t.start ? esc(md(t.start)) + (t.end && t.end !== t.start ? ' – ' + esc(md(t.end)) : '') : ''}${nights ? ' · ' + nights : ''}</div>
       <div class="rc-people">${(t.members || []).map((u) => avatar(u, 30, t.memberNames?.[u])).join('')}</div></div>
-    <div class="rc-grid">
-      <div><span>📍</span><b>${sum('places')}</b><i>곳 방문${done ? ` (${done} 완료)` : ''}</i></div>
+    <div class="rc-grid rc-a">
+      <div><span>📍</span><b data-cnt="${sum('places')}">${sum('places')}</b><i>곳 방문${done ? ` (${done} 완료)` : ''}</i></div>
       <div><span>🚶</span><b>${sum('walkS') ? fmtDur(sum('walkS')) : '-'}</b><i>${sum('walkM') ? fmtDist(sum('walkM')) + ' 걸음' : '걸은 시간'}</i></div>
-      <div><span>🍜</span><b>${sum('meals')}끼</b><i>맛집</i></div>
-      <div><span>☕</span><b>${sum('cafes')}곳</b><i>카페</i></div>
-      <div><span>🛍</span><b>${sum('shops')}곳</b><i>쇼핑</i></div>
-      <div><span>✈️</span><b>${S.flights.length}편</b><i>비행</i></div>
+      <div><span>🍜</span><b data-cnt="${sum('meals')}" data-suf="끼">${sum('meals')}끼</b><i>맛집</i></div>
+      <div><span>☕</span><b data-cnt="${sum('cafes')}" data-suf="곳">${sum('cafes')}곳</b><i>카페</i></div>
+      <div><span>🛍</span><b data-cnt="${sum('shops')}" data-suf="곳">${sum('shops')}곳</b><i>쇼핑</i></div>
+      <div><span>✈️</span><b data-cnt="${S.flights.length}" data-suf="편">${S.flights.length}편</b><i>비행</i></div>
     </div>
-    <div class="sum rc-money"><div class="lbl">총 지출</div><div class="big">${won(total)}</div>
+    ${ttype ? `<div class="rc-type rc-a"><div class="rct-e">${ttype.emoji}</div><div class="rct-k">이번 여행은</div><div class="rct-t">${esc(ttype.title)}</div><div class="rct-s">${esc(ttype.sub)}</div>
+      <div class="rct-bars">${ttype.rows.map(([k, e, x]) => `<div class="rct-row"><span>${e} ${k}</span><div><i style="--w:${Math.round(x * 100)}%"></i></div><b>${Math.round(x * 100)}%</b></div>`).join('')}</div></div>` : ''}
+    <div class="sum rc-money rc-a"><div class="lbl">총 지출</div><div class="big" data-cnt="${Math.round(total)}" data-won="1">${won(total)}</div>
       <div class="bars">${total ? cats.map(([c, x]) => `<div style="width:${(x / total) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
       <div class="legend">${cats.map(([c, x]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(x)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / ppl)}</span>` : ''}</div></div>
-    <div class="rc-best">
+    <div class="rc-best rc-a">
       ${topSpend && topSpend.spent ? `<div>💸 가장 많이 쓴 날<b>${esc(dayLabel(topSpend, per.indexOf(topSpend)))} · ${won(topSpend.spent)}</b></div>` : ''}
       ${topWalk && topWalk.walkS ? `<div>🚶 가장 많이 걸은 날<b>${esc(dayLabel(topWalk, per.indexOf(topWalk)))} · ${fmtDur(topWalk.walkS)}</b></div>` : ''}
     </div>
     ${awardsHtml(t)}
     <h3 class="rc-h">하루하루</h3>
-    ${per.map((x, i) => `<div class="rc-day"><div class="rc-dh"><b>${esc(dayLabel(x, i))}</b>${W[x.d] ? `<span>${W[x.d].emoji} ${Math.round(W[x.d].max)}°</span>` : ''}${x.spent ? `<span class="mono">${won(x.spent)}</span>` : ''}</div>
+    ${per.map((x, i) => `<div class="rc-day rc-a"><div class="rc-dh"><b>${esc(dayLabel(x, i))}</b>${W[x.d] ? `<span>${W[x.d].emoji} ${Math.round(W[x.d].max)}°</span>` : ''}${x.spent ? `<span class="mono">${won(x.spent)}</span>` : ''}</div>
       <div class="rc-route">${x.items.length ? x.items.map((it) => `<span style="--c:${(ICATS[it.cat] || ICATS.기타)[1]}">${esc(it.title)}</span>`).join('<em>→</em>') : '<span class="muted">기록 없음</span>'}</div></div>`).join('')}
     ${leftWish.length ? `<h3 class="rc-h">다음에 가볼 곳 (못 간 찜 ${leftWish.length})</h3><div class="rc-route">${leftWish.map((p) => `<span style="--c:${(ICATS[p.cat] || ICATS.기타)[1]}">${esc(p.name)}</span>`).join('')}</div>` : ''}
     <div id="rcNotes"></div>
     <button class="btn pri block" data-rc="copy" data-text="${esc(text)}" style="margin:22px 0 8px">리캡 텍스트 복사하기</button>
   </div>`;
+  animateRecap(v);
   const box = v.querySelector('#rcNotes'); const copyBtn = v.querySelector('[data-rc=copy]');
   const syncCopy = (notes) => {
     const extra = notes.filter((n) => !n.to).map((n) => `✍️ ${noteName(t, n)} ${n.mood || ''} "${n.text}"`);
@@ -1174,6 +1215,42 @@ async function openRecap(t) {
   };
   syncCopy(await drawNotes(t, box));
   box.addEventListener('click', (e) => onNotesClick(e, t, box, syncCopy));
+}
+
+/** 여행 성격: 일정 분류 비중 + 지출 비중을 반반 섞어서 가장 큰 쪽 */
+function tripType(t) {
+  const its = S.items.filter((i) => i.kind !== 'memo');
+  const th = { 음식: 0, 쇼핑: 0, 관광: 0 }; const map = { 맛집: '음식', 카페: '음식', 쇼핑: '쇼핑', 관광: '관광' };
+  let ni = 0; its.forEach((i) => { const k = map[i.cat]; if (k) { th[k]++; ni++; } });
+  const sp = { 음식: 0, 쇼핑: 0, 관광: 0 }; const em = { 식비: '음식', 쇼핑: '쇼핑', 관광: '관광' };
+  let ns = 0; S.expenses.forEach((e) => { const k = em[e.cat]; const v = toKRW(t, e); if (k && v > 0) { sp[k] += v; ns += v; } });
+  if (!ni && !ns) return null;
+  const sc = {}; Object.keys(th).forEach((k) => { sc[k] = ni && ns ? (th[k] / ni + sp[k] / ns) / 2 : ni ? th[k] / ni : sp[k] / ns; });
+  const rows = [['음식', '🍜'], ['쇼핑', '🛍'], ['관광', '📸']].map(([k, e]) => [k, e, sc[k]]).sort((a, b) => b[2] - a[2]);
+  const [top, , x] = rows[0];
+  const T = {
+    음식: ['🍜', '음식 중심의 여행이었어요', '먹는 게 남는 거, 맞죠?'],
+    쇼핑: ['🛍', '쇼핑 중심의 여행이었어요', '캐리어가 무거워진 이유'],
+    관광: ['📸', '관광 중심의 여행이었어요', '많이 보고 많이 걸었어요'],
+  };
+  const [emoji, title, sub] = x < 0.42 ? ['🎒', '골고루 즐긴 여행이었어요', `조금 더 ${top} 쪽이었어요`] : T[top];
+  return { emoji, title, sub, rows };
+}
+/** 리캡 움직임: 스크롤하면 하나씩 떠오르고, 숫자는 0부터 올라감 */
+function animateRecap(v) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { v.querySelectorAll('.rc-a').forEach((x) => x.classList.add('in')); return; }
+  const count = (el) => {
+    const to = Number(el.dataset.cnt) || 0; if (!to) return; const suf = el.dataset.suf || ''; const isWon = el.dataset.won;
+    const t0 = performance.now(); const dur = isWon ? 1400 : 900;
+    const step = (now) => { const p = Math.min(1, (now - t0) / dur); const e = 1 - Math.pow(1 - p, 3); const n = Math.round(to * e);
+      el.textContent = isWon ? won(n) : n + suf; if (p < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  };
+  const io = new IntersectionObserver((ents) => ents.forEach((en) => {
+    if (!en.isIntersecting) return; const el = en.target; io.unobserve(el); el.classList.add('in');
+    el.querySelectorAll('[data-cnt]').forEach(count);
+  }), { root: v, threshold: 0.18 });
+  v.querySelectorAll('.rc-a').forEach((el, k) => { el.style.setProperty('--d', `${Math.min(k, 3) * 90}ms`); io.observe(el); });
 }
 
 /* ---------- 리캡: 우리끼리 어워드 · 후기 · 서로에게 한마디 ---------- */
@@ -1191,8 +1268,8 @@ function awardsHtml(t) {
   const food = S.items.filter((i) => i.cat === '맛집').length;
   if (!rated.length && !wallet && !food) return '';
   const medal = ['🥇', '🥈', '🥉'];
-  return `<h3 class="rc-h">🏆 우리끼리 어워드</h3><div class="aw">
-    ${rated.length ? `<div class="aw-card best"><div class="aw-t">⭐ 별점 베스트</div>${rated.map((x, k) => `<div class="aw-row"><span>${medal[k]}</span><b>${esc(x.i.title)}</b><i>★${x.avg.toFixed(1)}</i></div>`).join('')}</div>` : ''}
+  return `<h3 class="rc-h">🏆 우리끼리 어워드</h3><div class="aw rc-a">
+    ${rated.length ? `<div class="aw-card best"><div class="aw-t">⭐ 별점 베스트</div>${rated.map((x, k) => { const c = Object.values(x.i.comments || {}).filter(Boolean)[0]; return `<div class="aw-row"><span>${medal[k]}</span><b>${esc(x.i.title)}${c ? `<small>“${esc(c)}”</small>` : ''}</b><i>★${x.avg.toFixed(1)}</i></div>`; }).join('')}</div>` : ''}
     ${wallet ? `<div class="aw-card"><div class="aw-big">👛</div><div class="aw-t">든든한 지갑상</div><b>${esc(wallet[0])}</b><i>${won(wallet[1])} 결제</i></div>` : ''}
     ${food ? `<div class="aw-card"><div class="aw-big">🍜</div><div class="aw-t">먹방 기록</div><b>${food}끼</b><i>${food >= 8 ? '배 터지는 여행' : food >= 4 ? '알차게 냠냠' : '소소하게 냠'}</i></div>` : ''}
   </div>`;
@@ -1322,6 +1399,7 @@ function segRow(t, from, to, cls = '', label = '') {
     ${label ? `<span class="seglbl">${esc(label)}</span>` : ''}
     <button type="button" class="segsel" data-act="segpick" data-id="${esc(sid)}" data-auto="${esc(autoUsed || '')}" data-v="${esc(shown)}" aria-label="이동 수단 바꾸기">${MOVES[shown][0]}${cls ? '' : ` <span>${MOVES[shown][1]}</span>`}<i class="ti-caret">▾</i></button>
     <span class="seginfo" data-seginfo="${esc(sid)}">${segText(from, to, mode)}</span>
+    ${(() => { const ti = tinfoOf(to); if (ti) return `<button type="button" class="tichip" data-act="tinfo" data-id="${esc(sid)}">${TKINDS[ti.kind] || '🎫'} ${esc([ti.kind, ti.no].filter(Boolean).join(' ') || '교통편')}${(ti.photos || []).length ? ' · 🎫' : ''}${ti.memo ? ' · 📝' : ''}</button>`; return shown === 'transit' && !cls ? `<button type="button" class="tichip add" data-act="tinfo" data-id="${esc(sid)}">+ 교통편</button>` : ''; })()}
     ${shown === 'drive' ? `<button type="button" class="taxibtn" data-act="taxi" data-id="${esc(sid)}">🚕 택시</button>` : ''}
     <a class="seglink" data-seglink="${esc(sid)}" href="${esc(dirUrl(from, to, shown))}" target="_blank" rel="noopener">${segCN(from, to) ? '고덕 길찾기' : '길찾기'}</a>
   </div>`;
@@ -1410,6 +1488,16 @@ const saveStop = (t, st, data) => updateDoc(doc(db, 'trips', t.id, st._col, st._
 function flightRow(f, ordering) {
   const tok = `F:${f.id}~${f._kind}`;
   const dep = f._kind === 'dep';
+  if (!ordering && pairedFlights.has(f.id)) {
+    if (!dep) return '';
+    const mins = f.depAt && f.arrAt ? Math.round((Date.parse(f.arrAt.replace(' ', 'T')) - Date.parse(f.depAt.replace(' ', 'T'))) / 6e4) : 0;
+    const sub = [[f.airline, f.flightNo].filter(Boolean).join(' '), f.terminal, f.bookingRef ? '예약 ' + f.bookingRef : '', (f.qrIds || []).length ? '📱 QR' : ''].filter(Boolean).join(' · ');
+    return `<div class="item flightrow pair" style="--cat:#1F2A44" data-act="tab" data-v="flight" data-lp="${esc(tok)}">
+      <div class="irow"><div class="itime">${esc(f.time || '--:--')}<small>${esc(hm(f.arrAt) || '')}</small></div>
+      <div style="flex:1;min-width:0"><div class="ititle">✈️ ${esc(f.from || '?')} <span class="fl-arrow">→</span> ${esc(f.to || '?')}${mins > 0 ? `<span class="fl-dur">${Math.floor(mins / 60) ? Math.floor(mins / 60) + '시간 ' : ''}${mins % 60 ? (mins % 60) + '분' : ''}</span>` : ''}</div>
+      ${sub ? `<div class="imemo">${esc(sub)}</div>` : ''}
+      ${(() => { const w = flightWho(trip(), f); return w.length ? `<div class="bp-who small">${peopleChips(trip(), w)}</div>` : ''; })()}</div></div></div>`;
+  }
   const title = dep ? `🛫 ${esc(f.from || '?')} 출발 → ${esc(f.to || '?')}` : `🛬 ${esc(f.to || '?')} 도착 (${esc(f.from || '?')}에서)`;
   const sub = [f.airline, f.flightNo].filter(Boolean).join(' ')
     + (dep && f.terminal ? ` · ${f.terminal}` : '')
@@ -1435,7 +1523,35 @@ function starsHtml(t, i) {
     <div class="stars" style="--v:${(mine / 5) * 100}%" aria-label="별점"><span class="sbg">★★★★★</span><span class="sfg">★★★★★</span></div>
     <span class="rtxt">${mine ? mine.toFixed(1) : '← 끌어서 별점'}</span>
     ${all.length > 1 ? `<span class="ravg">같이 평균 ★${avg.toFixed(1)} · ${all.length}명</span>` : ''}
+    ${cmtHtml(t, i, mine)}
   </div>`;
+}
+/** 별점 한줄평: 내 것은 눌러서 수정, 같이 간 사람 것도 보여줌 */
+function cmtHtml(t, i, mine) {
+  const cs = Object.entries(i.comments || {}).filter(([, x]) => x);
+  const my = i.comments?.[S.user?.uid] || '';
+  const others = cs.filter(([u]) => u !== S.user?.uid);
+  if (!mine && !cs.length) return '';
+  return `<div class="rcmts">${mine ? `<button class="rcmt ${my ? 'has' : ''}" data-act="rcomment" data-id="${esc(i.id)}">${my ? `💬 ${esc(my)}` : '💬 한줄평 남기기'}</button>` : ''}
+    ${others.map(([u, x]) => `<div class="rcmt-o">${avatar(u, 16, t.memberNames?.[u])}<span>${esc(x)}</span>${i.ratings?.[u] ? `<i>★${Number(i.ratings[u]).toFixed(1)}</i>` : ''}</div>`).join('')}</div>`;
+}
+function commentSheet(t, i) {
+  if (!i) return;
+  const my = i.comments?.[S.user.uid] || '';
+  openSheet(`<h2>한줄평</h2><p class="small muted" style="margin-top:-6px">${esc(i.title)} · ★${Number(i.ratings?.[S.user.uid] || 0).toFixed(1)}</p>
+    <input class="inp" name="cmt" maxlength="60" value="${esc(my)}" placeholder="예: 웨이팅 1시간, 그래도 또 올 맛" enterkeyhint="done">
+    <div class="rowbtns">${my ? '<button class="btn danger" data-x="del">지우기</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
+    const inp = sh.querySelector('[name=cmt]');
+    { let done = false; const f = () => { if (done) return; done = true; inp.focus({ preventScroll: true }); }; sh.addEventListener('animationend', f, { once: true }); setTimeout(f, 350); }
+    const save = (txt) => {
+      closeSheet(); const it = S.items.find((x) => x.id === i.id); if (it) it.comments = { ...(it.comments || {}), [S.user.uid]: txt };
+      write(() => updateDoc(doc(db, 'trips', t.id, 'items', i.id), { [`comments.${S.user.uid}`]: txt }));
+      render();
+    };
+    sh.querySelector('[data-x=save]').onclick = () => save(inp.value.trim());
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(inp.value.trim()); } });
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => save(''));
+  });
 }
 /* 별점: 별 위를 누르거나 끌어서 */
 document.addEventListener('pointerdown', (ev) => {
@@ -1546,8 +1662,10 @@ const CAT_EMOJI = { 관광: '📸', 맛집: '🍜', 카페: '☕', 쇼핑: '🛍
 const catLabel = (c) => `${CAT_EMOJI[c] ? CAT_EMOJI[c] + ' ' : ''}${c}`;
 const SPEND_CAT = { 맛집: '식비', 카페: '식비', 쇼핑: '쇼핑', 관광: '관광', 숙소: '숙소', 이동: '교통', 기타: '기타' };
 const votesOf = (p) => Object.keys(p.votes || {}).filter((u) => p.votes[u]);
+const wishAdded = (p) => !!(p.addedTo && S.items.some((i) => i.id === p.addedTo.itemId));
 function viewWish(t) {
-  const all = [...S.places].sort((a, b) => (S.wishSort === 'vote' ? votesOf(b).length - votesOf(a).length : 0) || (b.createdAt || 0) - (a.createdAt || 0));
+  const addedN = S.places.filter(wishAdded).length;
+  const all = [...S.places].filter((p) => !(S.wishHideAdded && wishAdded(p))).sort((a, b) => (S.wishSort === 'vote' ? votesOf(b).length - votesOf(a).length : 0) || (b.createdAt || 0) - (a.createdAt || 0));
   const cnt = (c) => all.filter((p) => (p.cat || '기타') === c).length;
   const list = S.wishCat === 'all' ? all : all.filter((p) => (p.cat || '기타') === S.wishCat);
   const days = tripDays(t);
@@ -1566,7 +1684,8 @@ function viewWish(t) {
         ${rd.length > 1 ? `<button class="${on('all')}" data-act="wishroute" data-v="all">전체</button>` : ''}
         ${rd.map(({ d, idx }) => `<button class="${on(d)}" data-act="wishroute" data-v="${esc(d)}" style="--dc:${DAYCOLORS[idx % DAYCOLORS.length]}"><i></i>Day ${idx + 1}</button>`).join('')}</div>`;
     })()}
-    ${all.length > 1 ? `<div class="wishsort"><button class="${S.wishSort === 'new' ? 'on' : ''}" data-act="wishsort" data-v="new">최신순</button><button class="${S.wishSort === 'vote' ? 'on' : ''}" data-act="wishsort" data-v="vote">👍 많은 순</button></div>` : ''}
+    ${all.length > 1 || addedN ? `<div class="wishsort"><button class="${S.wishSort === 'new' ? 'on' : ''}" data-act="wishsort" data-v="new">최신순</button><button class="${S.wishSort === 'vote' ? 'on' : ''}" data-act="wishsort" data-v="vote">👍 많은 순</button>
+      ${addedN ? `<button class="hideadd ${S.wishHideAdded ? 'on' : ''}" data-act="wishHideAdded">${S.wishHideAdded ? '✓ ' : ''}일정에 넣은 곳 빼기</button>` : ''}</div>` : ''}
     ${list.length ? list.map((p) => {
       const c = ICATS[p.cat] || ICATS.기타;
       const added = p.addedTo && S.items.some((i) => i.id === p.addedTo.itemId);
@@ -1584,13 +1703,13 @@ function viewWish(t) {
           ${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener">링크</a>` : ''}
           <button class="lnk" data-act="editWish" data-id="${esc(p.id)}">수정</button>
         </div></div>`;
-    }).join('') : `<div class="empty"><b>${S.wishCat === 'all' ? '찜한 곳이 없어요' : S.wishCat + ' 찜이 없어요'}</b>가보고 싶은 맛집·카페·쇼핑 장소를 모아두고<br>날짜가 정해지면 일정으로 옮겨 보세요.</div>`}`;
+    }).join('') : `<div class="empty"><b>${S.wishHideAdded && S.places.length ? '일정에 안 넣은 찜이 없어요' : S.wishCat === 'all' ? '찜한 곳이 없어요' : S.wishCat + ' 찜이 없어요'}</b>가보고 싶은 맛집·카페·쇼핑 장소를 모아두고<br>날짜가 정해지면 일정으로 옮겨 보세요.</div>`}`;
 }
 async function drawWishMap(t) {
   if (!mapsEnabled) return showMap(false);
   showMap(true);
   const ctl = await ensureMap(); if (!ctl) return showMap(false);
-  const ps = S.places.filter((p) => ll(p) && (S.wishCat === 'all' || (p.cat || '기타') === S.wishCat));
+  const ps = S.places.filter((p) => ll(p) && !(S.wishHideAdded && wishAdded(p)) && (S.wishCat === 'all' || (p.cat || '기타') === S.wishCat));
   const route = S.wishRoute;
   const groups = WCATS.map((c) => ({
     color: (ICATS[c] || ICATS.기타)[1], path: false, scale: route ? 1.15 : 1.05,
@@ -1837,31 +1956,95 @@ const PAY_METHODS = ['카드', '현금'];
 const PAY_ICON = { 카드: '💳', 현금: '💵' };
 function toKRW(t, e) {
   const a = Number(e.amount) || 0;
-  return e.cur === 'KRW' ? a : a * (Number(e.rate) || Number(t.rate) || 1);
+  const v = e.cur === 'KRW' ? a : a * (Number(e.rate) || Number(t.rate) || 1);
+  return e.refund ? -v : v; // 환급(택스리펀 등)은 빼기
 }
 const rateLabel = (cur, perOne) => `${rateUnit(cur)} ${cur} = ${num((Number(perOne) || 0) * rateUnit(cur))}원`;
+/** 같은 날 지출 순서: 꾹 눌러 옮긴 순서(pos)가 있으면 그것, 없으면 최근 것 위 */
+function sortDayExp(es) {
+  // 순서 정한 뒤에 새로 들어온 지출(pos 없음)은 맨 위
+  const np = es.filter((e) => typeof e.pos !== 'number').sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return [...np, ...es.filter((e) => typeof e.pos === 'number').sort((a, b) => a.pos - b.pos)];
+}
 function viewMoney(t) {
-  const list = [...S.expenses].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
+  const multi = peopleOf(t).length > 1;
+  const seg = multi ? `<div class="mseg"><button class="${S.moneyView === 'settle' ? '' : 'on'}" data-act="moneyView" data-v="list">내역</button><button class="${S.moneyView === 'settle' ? 'on' : ''}" data-act="moneyView" data-v="settle">정산</button></div>` : '';
+  if (multi && S.moneyView === 'settle') return seg + viewSettle(t);
+  const list = [...S.expenses];
   const total = list.reduce((s, e) => s + toKRW(t, e), 0);
-  const byCat = {}; list.forEach((e) => { byCat[e.cat || '기타'] = (byCat[e.cat || '기타'] || 0) + toKRW(t, e); });
+  const refunds = -list.filter((e) => e.refund).reduce((s, e) => s + toKRW(t, e), 0);
+  const spent = total + refunds;
+  const byCat = {}; list.forEach((e) => { if (!e.refund) byCat[e.cat || '기타'] = (byCat[e.cat || '기타'] || 0) + toKRW(t, e); });
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const n = peopleOf(t).length || 1;
-  const byPay = {}; list.forEach((e) => { if (e.pay) byPay[e.pay] = (byPay[e.pay] || 0) + toKRW(t, e); });
-  const payLine = Object.keys(byPay).length ? `<div class="paysum">${PAY_METHODS.filter((p) => byPay[p]).map((p) => `<span>${PAY_ICON[p]} ${p} ${won(byPay[p])}</span>`).join('')}</div>` : '';
+  const byPay = {}; list.forEach((e) => { if (e.pay && !e.refund) byPay[e.pay] = (byPay[e.pay] || 0) + toKRW(t, e); });
+  const payBits = PAY_METHODS.filter((p) => byPay[p]).map((p) => `<span>${PAY_ICON[p]} ${p} ${won(byPay[p])}</span>`);
+  if (refunds > 0.5) payBits.push(`<span class="rf">↩︎ 환급 +${won(refunds)}</span>`);
+  const payLine = payBits.length ? `<div class="paysum">${payBits.join('')}</div>` : '';
   const groups = {}; list.forEach((e) => { (groups[e.date || '날짜 없음'] ||= []).push(e); });
-  return `<div class="sum"><div class="lbl">총 지출 ${t.currency && t.currency !== 'KRW' ? `· 기본 환율 ${esc(rateLabel(t.currency, t.rate))}` : ''}</div>
+  const gkeys = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+  return `${seg}<div class="sum"><div class="lbl">총 지출${refunds > 0.5 ? ' (환급 뺀 금액)' : ''} ${t.currency && t.currency !== 'KRW' ? `· 기본 환율 ${esc(rateLabel(t.currency, t.rate))}` : ''}</div>
     <div class="big">${won(total)}</div>
-    <div class="bars">${total ? cats.map(([c, v]) => `<div style="width:${(v / total) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
+    <div class="bars">${spent ? cats.map(([c, v]) => `<div style="width:${(v / spent) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
     <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / n)}</span>` : ''}</div>${payLine}</div>
-  ${list.length ? Object.entries(groups).map(([d, es]) => `<div class="dategrp">${esc(d.includes('-') ? md(d) : d)} · ${won(es.reduce((s, e) => s + toKRW(t, e), 0))}</div>
-    ${es.map((e) => {
+  ${list.length ? `${list.length > 1 ? '<div class="lphint" style="text-align:right;margin:-4px 4px 0">꾹 눌러서 순서 바꾸기</div>' : ''}` + gkeys.map((d) => { const es = sortDayExp(groups[d]); return `<div class="dategrp">${esc(d.includes('-') ? md(d) : d)} · ${won(es.reduce((s, e) => s + toKRW(t, e), 0))}</div>
+    <div class="explist" data-d="${esc(d)}">${es.map((e) => {
       const col = ECATS[e.cat] || '#888'; const local = e.cur !== 'KRW' && t.currency && t.currency !== 'KRW';
-      return `<button class="exp" data-act="editExp" data-id="${esc(e.id)}">
-        <div class="ico" style="background:${col}1F;color:${col}">${CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
-        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제 · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
-        <div class="amt">${local ? `${num(e.amount)} ${esc(t.currency)}<small>${won(toKRW(t, e))}</small>` : won(e.amount)}</div></button>`;
-    }).join('')}`).join('')
+      const sign = e.refund ? '+' : '';
+      return `<button class="exp ${e.refund ? 'refund' : ''}" data-act="editExp" data-id="${esc(e.id)}" data-elp="${esc(e.id)}">
+        <div class="ico" style="background:${col}1F;color:${col}">${e.refund ? '↩︎' : CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
+        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.refund ? `환급 · ${esc(e.payer || '?')} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
+        <div class="amt">${local ? `${sign}${num(e.amount)} ${esc(t.currency)}<small>${sign}${won(Math.abs(toKRW(t, e)))}</small>` : `${sign}${won(e.amount)}`}</div></button>`;
+    }).join('')}</div>`; }).join('')
     : '<div class="empty"><b>기록된 지출이 없어요</b>쓴 돈을 바로바로 적어 두면 정산이 쉬워요.</div>'}`;
+}
+/* 가계부 꾹 눌러 순서 바꾸기 (같은 날짜 안에서) */
+document.addEventListener('contextmenu', (e) => { if (e.target.closest('.explist [data-elp]')) e.preventDefault(); });
+document.addEventListener('pointerdown', (ev) => {
+  if (ev.button > 0 || dragOn) return;
+  const el = ev.target.closest('.explist [data-elp]'); if (!el) return;
+  const isTouch = ev.pointerType === 'touch';
+  const x0 = ev.clientX, y0 = ev.clientY; let y = y0;
+  el.classList.add('pressing');
+  const cancel = () => { clearTimeout(timer); el.classList.remove('pressing'); document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', cancel); document.removeEventListener('pointercancel', cancel); };
+  const mv = (e) => { y = e.clientY; if (Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancel(); };
+  const timer = setTimeout(() => { cancel(); navigator.vibrate?.(15); dragExp(el, y, isTouch); }, 400);
+  document.addEventListener('pointermove', mv); document.addEventListener('pointerup', cancel); document.addEventListener('pointercancel', cancel);
+});
+function dragExp(card, clientY, isTouch) {
+  const t = trip(); const box = card.parentElement; if (!t || !box) return;
+  dragOn = true; document.addEventListener('touchmove', blockScroll, { passive: false });
+  const r0 = card.getBoundingClientRect(); const offY = clientY - r0.top; let lastY = clientY; let raf = 0; let ended = false;
+  const ph = document.createElement('div'); ph.className = 'dragph'; ph.style.height = r0.height + 'px'; card.after(ph);
+  card.classList.add('dragging');
+  Object.assign(card.style, { position: 'fixed', top: '0px', left: r0.left + 'px', width: r0.width + 'px', zIndex: 30, margin: 0, transform: `translateY(${r0.top}px)` });
+  const findSpot = () => {
+    const list = [...box.children].filter((x) => x !== card && x !== ph);
+    const o = list.find((x) => { const r = x.getBoundingClientRect(); return lastY < r.top + r.height / 2; });
+    if (o) { if (ph.nextElementSibling !== o) o.before(ph); } else if (list.length && list[list.length - 1].nextElementSibling !== ph) list[list.length - 1].after(ph);
+  };
+  const moveTo = (yy) => {
+    lastY = yy; card.style.transform = `translateY(${lastY - offY}px)`; findSpot(); cancelAnimationFrame(raf);
+    const edge = 80, vh = window.innerHeight;
+    if (lastY > vh - edge || lastY < edge) { const step = () => { window.scrollBy(0, lastY > vh - edge ? 10 : -10); findSpot(); raf = requestAnimationFrame(step); }; raf = requestAnimationFrame(step); }
+  };
+  const end = () => {
+    if (ended) return; ended = true;
+    cancelAnimationFrame(raf); dragOn = false; suppressClickUntil = Date.now() + 400; document.removeEventListener('touchmove', blockScroll); off();
+    ph.replaceWith(card); card.classList.remove('dragging');
+    Object.assign(card.style, { transform: '', position: '', top: '', left: '', width: '', zIndex: '', margin: '' });
+    const ids = [...box.querySelectorAll('[data-elp]')].map((x) => x.dataset.elp);
+    const b = writeBatch(db); let n = 0;
+    ids.forEach((id, k) => { const e = S.expenses.find((x) => x.id === id); const pos = (k + 1) * 1000; if (e && e.pos !== pos) { e.pos = pos; b.update(doc(db, 'trips', t.id, 'expenses', id), { pos }); n++; } });
+    if (n) commit(b);
+    render();
+  };
+  const tmove = (e) => { const p = e.touches[0]; if (p) moveTo(p.clientY); };
+  const pmove = (e) => { if (e.pointerType !== 'touch') moveTo(e.clientY); };
+  const pup = (e) => { if (e.pointerType !== 'touch') end(); };
+  const off = () => { document.removeEventListener('touchmove', tmove); document.removeEventListener('touchend', end); document.removeEventListener('touchcancel', end); document.removeEventListener('pointermove', pmove); document.removeEventListener('pointerup', pup); };
+  if (isTouch) { document.addEventListener('touchmove', tmove, { passive: true }); document.addEventListener('touchend', end); document.addEventListener('touchcancel', end); }
+  else { document.addEventListener('pointermove', pmove); document.addEventListener('pointerup', pup); }
 }
 function settle(t) {
   // 초대로 참여한 사람 + (예전에 이름으로 넣었던 사람이 지출에 남아 있으면 같이)
@@ -2116,9 +2299,10 @@ function itemForm(t, item) {
     <label class="f"><span>링크 (선택)</span><input class="inp" name="link" value="${esc(item.link)}" placeholder="https://"></label>
     <div class="spendbox"><span class="flbl">💸 여기서 쓴 돈 (가계부에 자동 기록)</span>
       <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || spCurs[0])}</div>
+      <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
       ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
       <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || item.who || people, true)}</div>` : ''}
-      <div class="hint">정산 탭에 바로 반영돼요.</div></div>
+      <div class="hint">가계부 정산에 바로 반영돼요.</div></div>
     ${isNew ? '' : '<button type="button" class="towish" data-x="towish">💛 찜으로 옮기기 <span>날짜 미정으로 빼두기</span></button>'}
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh);
@@ -2158,7 +2342,7 @@ function itemForm(t, item) {
         if (spend > 0) {
           const exp = {
             title: data.title, amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: SPEND_CAT[data.cat] || '기타',
-            payer: pillVal(sh, 'spayer')[0] || linked?.payer || people[0], split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(), date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
+            pay: pillVal(sh, 'spay')[0] || null, payer: pillVal(sh, 'spayer')[0] || linked?.payer || people[0], split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(), date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
           };
           if (expenseId && linked) b.update(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
           else { expenseId = uid(); b.set(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
@@ -2228,10 +2412,11 @@ function memoForm(t, m) {
       <div id="spendMore" ${linked ? '' : 'hidden'}>
         <label class="f" style="margin-top:8px"><span>가계부에 적을 이름</span><input class="inp" name="stitle" value="${esc(linked?.title || '')}" placeholder="비우면 메모 첫 줄"></label>
         <div><span class="flbl">분류</span>${pills('scat', Object.keys(ECATS), linked?.cat || '기타')}</div>
+        <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
         ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
         <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || people, true)}</div>` : ''}
       </div>
-      <div class="hint">정산 탭에 바로 반영돼요.</div></div>
+      <div class="hint">가계부 정산에 바로 반영돼요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); const v = fval(sh);
     const spendIn = sh.querySelector('[name=spend]');
@@ -2262,7 +2447,7 @@ function memoForm(t, m) {
         const first = data.memo.split('\n').map((x) => x.trim()).find(Boolean) || '메모';
         const exp = {
           title: v('stitle') || (first.length > 30 ? first.slice(0, 30) + '…' : first), amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: pillVal(sh, 'scat')[0] || '기타',
-          payer: pillVal(sh, 'spayer')[0] || linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]),
+          pay: pillVal(sh, 'spay')[0] || null, payer: pillVal(sh, 'spayer')[0] || linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]),
           split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(),
           date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
         };
@@ -2419,17 +2604,27 @@ function expForm(t, e) {
   e = e || { title: '', amount: '', cur: t.currency || 'KRW', payer: people.includes(myName(t)) ? myName(t) : people[0], split: [...people], date: days.includes(today) ? today : (days[0].startsWith('day') ? today : days[0]), cat: '식비', pay: localStorage.getItem('payMethod') || '카드' };
   const curs = [...new Set([t.currency || 'KRW', 'KRW'])];
   openSheet(`<h2>${isNew ? '지출 추가' : '지출 수정'}</h2>
+    <div class="mseg" id="expKind"><button type="button" class="${e.refund ? '' : 'on'}" data-k="0">− 지출</button><button type="button" class="${e.refund ? 'on' : ''}" data-k="1">+ 환급·받은 돈</button></div>
     <label class="f"><span>내용</span><input class="inp" name="title" value="${esc(e.title)}" placeholder="예: 이치란 라멘"></label>
     <div class="two"><label class="f" style="flex:2"><span>금액</span><input class="inp mono" type="number" step="any" inputmode="decimal" name="amount" value="${esc(e.amount)}" placeholder="0"></label>
       <label class="f"><span>통화</span>${pills('cur', curs, e.cur || curs[0])}</label></div>
     <div id="rateBox"></div>
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ECATS), e.cat || '기타')}</label>
-    <label class="f"><span>결제 수단</span>${pills('pay', PAY_METHODS, e.pay || '')}</label>
-    <label class="f"><span>결제한 사람</span>${pills('payer', people, e.payer)}</label>
+    <label class="f" id="payRow"><span>결제 수단</span>${pills('pay', PAY_METHODS, e.pay || '')}</label>
+    <label class="f"><span id="payerLbl">결제한 사람</span>${pills('payer', people, e.payer)}</label>
     <label class="f"><span>나눌 사람</span>${pills('split', people, e.split || people, true)}</label>
     <label class="f"><span>날짜</span><input class="inp" type="date" name="date" value="${esc(e.date)}"></label>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); const v = fval(sh);
+    let refund = !!e.refund;
+    const paintKind = () => {
+      sh.querySelectorAll('#expKind button').forEach((b) => b.classList.toggle('on', (b.dataset.k === '1') === refund));
+      sh.querySelector('#payRow').hidden = refund;
+      sh.querySelector('#payerLbl').textContent = refund ? '받은 사람' : '결제한 사람';
+      sh.querySelector('[name=title]').placeholder = refund ? '예: 택스 리펀, 보증금 환불' : '예: 이치란 라멘';
+    };
+    paintKind();
+    sh.querySelector('#expKind').addEventListener('click', (ev) => { const b = ev.target.closest('[data-k]'); if (!b) return; refund = b.dataset.k === '1'; paintKind(); });
     // 외화일 때: 이 지출에 적용할 환율 (카드 결제 환율 등) — 기본값은 여행 설정 환율
     let rateTyped = e.rate ? String(Math.round(e.rate * rateUnit(e.cur) * 10000) / 10000) : '';
     const rateBox = sh.querySelector('#rateBox');
@@ -2460,7 +2655,7 @@ function expForm(t, e) {
       if (!v('title') || !(amount > 0)) return toast('내용과 금액을 확인해 주세요');
       const split = pillVal(sh, 'split'); if (!split.length) return toast('나눌 사람을 한 명 이상 골라 주세요');
       const cur = curNow(); const rIn = Number(sh.querySelector('[name=rate]')?.value);
-      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', pay: pillVal(sh, 'pay')[0] || null, payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
+      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', refund, pay: refund ? null : pillVal(sh, 'pay')[0] || null, payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date') };
       try { if (data.pay) localStorage.setItem('payMethod', data.pay); } catch {}
       closeSheet();
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
@@ -2795,7 +2990,7 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el || el.closest('.sheet')) return;
   if (ev.target.closest('a.ckbtn')) { const f = S.flights.find((x) => x.id === el.dataset.id); if (f?.bookingRef) copy(f.bookingRef, `예약번호 ${f.bookingRef} 복사해 뒀어요`); return; }
   if (ev.target.closest('a')) return; // 링크는 그대로 열기
-  if (ev.target.closest('.rate')) return; // 별점 영역은 지도 이동 안 함
+  if (ev.target.closest('.rate') && el.dataset.act !== 'rcomment') return; // 별점 영역은 지도 이동 안 함
   const a = el.dataset.act, id = el.dataset.id, t = trip();
   switch (a) {
     case 'open': S.tab = 'plan'; openTrip(id); break;
@@ -2805,11 +3000,14 @@ document.addEventListener('click', (ev) => {
     case 'guide': guideSheet(); break;
     case 'myFlights': lsSet('tn_my_flights', el.dataset.v); render(); break;
     case 'segpick': ev.stopPropagation(); openSegPicker(el); break;
+    case 'tinfo': ev.stopPropagation(); transitSheet(id); break;
     case 'checkFlight': checkFlight(t, id, el); break;
     case 'taxi': { ev.stopPropagation(); const sg = stopMap.get(id); if (sg) taxiSheet(sg.from, sg.to); break; }
     case 'hideInstall': lsSet('tn_install_hide', '1'); render(); break;
     case 'editTrip': tripForm(t); break;
     case 'tab': S.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
+    case 'rcomment': commentSheet(t, S.items.find((i) => i.id === id)); break;
+    case 'moneyView': S.moneyView = el.dataset.v; render(); break;
     case 'day': S.day = el.dataset.v; S.mapAll = false; render(); break;
     case 'newItem': itemForm(t, null); break;
     case 'editItem': ev.stopPropagation(); itemForm(t, S.items.find((i) => i.id === id)); break;
@@ -2842,6 +3040,7 @@ document.addEventListener('click', (ev) => {
     }
     case 'wishcat': S.wishCat = el.dataset.v; render(); break;
     case 'wishsort': S.wishSort = el.dataset.v; render(); break;
+    case 'wishHideAdded': S.wishHideAdded = !S.wishHideAdded; lsSet('wishHideAdded', S.wishHideAdded ? '1' : ''); render(); break;
     case 'wishroute': S.wishRoute = el.dataset.v || null; render(); document.getElementById('mapwrap')?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); break;
     case 'vote': {
       ev.stopPropagation(); const p = S.places.find((x) => x.id === id); if (!p) break;
@@ -2873,7 +3072,12 @@ document.addEventListener('click', (ev) => {
 }, true);
 
 /** 이동 수단 고르기: 버튼 아래 유리 느낌 선택창 */
-function closeSegPop() { document.getElementById('segpop')?.remove(); }
+let segPopOff = null;
+function closeSegPop() {
+  document.getElementById('segpop')?.remove();
+  // 바깥 누르면 닫는 리스너도 같이 정리 (안 지우면 다음에 열 때 방금 연 팝오버를 바로 닫아버림)
+  if (segPopOff) { document.removeEventListener('click', segPopOff, true); segPopOff = null; }
+}
 function openSegPicker(btn) {
   closeSegPop();
   const sid = btn.dataset.id; const sg = stopMap.get(sid); if (!sg) return;
@@ -2883,7 +3087,7 @@ function openSegPicker(btn) {
     const r = segResult(sg.from, sg.to, k) || (k === auto ? segResult(sg.from, sg.to, 'auto') : null);
     const info = r && r.secs && !r.none ? `${fmtDur(r.secs)} · ${fmtDist(r.meters)}` : '';
     return `<button type="button" class="sp-row ${k === cur ? 'on' : ''}" data-mode="${k}" role="menuitem"><span class="sp-e">${v[0]}</span><span class="sp-l">${v[1]}${k === auto ? '<em>추천</em>' : ''}</span><span class="sp-i">${info}</span>${k === cur ? '<span class="sp-c">✓</span>' : ''}</button>`;
-  }).join('')}`;
+  }).join('')}<button type="button" class="sp-row sp-ti" data-x="tinfo"><span class="sp-e">🎫</span><span class="sp-l">${tinfoOf(sg.to) ? '교통편 정보 보기·수정' : '교통편 정보 적기'}</span><span class="sp-i">승차권·메모</span></button>`;
   document.body.appendChild(pop);
   const r = btn.getBoundingClientRect(); const w = pop.offsetWidth, h = pop.offsetHeight;
   const left = Math.min(Math.max(12, r.left), innerWidth - w - 12);
@@ -2893,8 +3097,62 @@ function openSegPicker(btn) {
   pop.addEventListener('click', (e) => {
     const row = e.target.closest('.sp-row'); if (!row) return;
     closeSegPop(); applySegMode(sid, row.dataset.mode, auto);
+    if (row.dataset.mode === 'transit' && !tinfoOf(sg.to)) setTimeout(() => transitSheet(sid), 120);
   });
-  setTimeout(() => document.addEventListener('click', function off(e) { if (!e.target.closest('#segpop')) { closeSegPop(); document.removeEventListener('click', off, true); } }, true), 0);
+  pop.querySelector('[data-x=tinfo]')?.addEventListener('click', (e) => { e.stopPropagation(); closeSegPop(); transitSheet(sid); });
+  setTimeout(() => {
+    if (!pop.isConnected) return;
+    segPopOff = (e) => { if (!e.target.closest('#segpop')) closeSegPop(); };
+    document.addEventListener('click', segPopOff, true);
+  }, 0);
+}
+/* 대중교통 구간 정보: 종류·편명/노선·메모·승차권 사진 (도착 지점 문서에 저장) */
+const TKINDS = { 버스: '🚌', 기차: '🚆', 지하철: '🚇', 비행기: '✈️', 배: '⛴️', 기타: '🎫' };
+const stopSrc = (st) => (st._col === 'items' ? S.items.find((x) => x.id === st._doc) : S.flights.find((x) => x.id === st._doc));
+function tinfoOf(st) {
+  if (!st?._tk) return null; const src = stopSrc(st); const ti = src?.[st._tk];
+  return ti && (ti.kind || ti.no || ti.memo || (ti.photos || []).length) ? ti : null;
+}
+function transitSheet(sid) {
+  const t = trip(); const sg = stopMap.get(sid); if (!t || !sg || !sg.to._tk) return;
+  const st = sg.to; const ti = tinfoOf(st) || {};
+  const photos = (ti.photos || []).map((id) => ({ id, data: qrCache.get(id) && qrCache.get(id) !== 'loading' ? qrCache.get(id) : null }));
+  const removed = [];
+  openSheet(`<h2>교통편 정보</h2><p class="small muted" style="margin-top:-6px">${esc(sg.from.title || '')} → ${esc(st.title || '')}</p>
+    <label class="f"><span>종류</span>${pills('tkind', Object.keys(TKINDS), ti.kind || '버스')}</label>
+    <label class="f"><span>노선·편명 (선택)</span><input class="inp" name="tno" value="${esc(ti.no || '')}" placeholder="예: 공항리무진 6001, KTX 101, 좌석 7A"></label>
+    <label class="f"><span>메모</span><textarea class="inp" name="tmemo" rows="3" placeholder="예: 3번 승강장, 현금만 됨, 10분 간격">${esc(ti.memo || '')}</textarea></label>
+    <div class="f"><span class="flbl">승차권·탑승권 사진 (최대 4장)</span><div class="qredit" id="tiPics"></div>
+      <label class="btn ghost small" style="margin-top:8px;display:inline-flex">📷 사진 넣기<input type="file" accept="image/*" multiple hidden id="tiFile"></label></div>
+    <div class="rowbtns">${tinfoOf(st) ? '<button class="btn danger" data-x="del">지우기</button>' : ''}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
+    wirePills(sh); const v = fval(sh);
+    const draw = () => {
+      sh.querySelector('#tiPics').innerHTML = photos.map((q, k) => `<div class="qrthumb" data-k="${k}">${q.data ? `<img src="${q.data}" alt="">` : '<span>사진</span>'}<button type="button" class="qrdel" data-k="${k}" aria-label="삭제">×</button></div>`).join('');
+      sh.querySelectorAll('#tiPics img').forEach((img) => img.onclick = () => { const w = document.createElement('div'); w.className = 'tiview'; w.innerHTML = `<img src="${img.src}" alt="">`; w.onclick = () => w.remove(); document.body.appendChild(w); });
+      sh.querySelectorAll('#tiPics .qrdel').forEach((b) => b.onclick = () => {
+        if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = '삭제?'; return; }
+        const [q] = photos.splice(Number(b.dataset.k), 1); if (q && !q.isNew) removed.push(q.id); draw();
+      });
+    };
+    draw();
+    photos.filter((q) => !q.data).forEach((q) => loadQr(t, q.id).then((d) => { q.data = d; draw(); }));
+    sh.querySelector('#tiFile').addEventListener('change', async (ev) => {
+      const files = [...ev.target.files].slice(0, 4 - photos.length);
+      if (!files.length) return toast('사진은 4장까지 넣을 수 있어요');
+      for (const f of files) { try { photos.push({ id: uid(), data: await compressImage(f), isNew: true }); } catch { toast('사진을 읽지 못했어요'); } }
+      ev.target.value = ''; draw();
+    });
+    const save = (data) => {
+      const b = writeBatch(db);
+      for (const q of photos.filter((x) => x.isNew)) { b.set(doc(db, 'trips', t.id, 'files', q.id), { seg: `${st._col}/${st._doc}`, data: q.data, createdAt: Date.now(), by: S.user.uid }); qrCache.set(q.id, q.data); }
+      for (const id of removed) { b.delete(doc(db, 'trips', t.id, 'files', id)); qrCache.delete(id); }
+      const src = stopSrc(st); if (src) src[st._tk] = data;
+      b.update(doc(db, 'trips', t.id, st._col, st._doc), { [st._tk]: data });
+      closeSheet(); commit(b); render();
+    };
+    sh.querySelector('[data-x=save]').onclick = () => save({ kind: pillVal(sh, 'tkind')[0] || '기타', no: v('tno'), memo: v('tmemo'), photos: photos.map((q) => q.id) });
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm('교통편 정보를 지울까요? 사진도 같이 지워져요.', '지우기', () => { removed.push(...photos.filter((q) => !q.isNew).map((q) => q.id)); photos.length = 0; save(null); }));
+  });
 }
 // 알아서 고른 수단과 같은 걸 고르면 계속 자동, 다른 걸 고르면 그 구간만 고정
 function applySegMode(sid, value, auto) {

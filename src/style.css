@@ -1062,3 +1062,84 @@ header{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none
 .fabduo .pri{box-shadow:0 8px 24px rgba(47,107,255,.35)}
 .fabduo .memofab{background:#fff;color:var(--ink);border:0;font-weight:600;box-shadow:0 6px 18px rgba(25,31,40,.14)}
 .planbar:empty{display:none}
+/* 가계부: 내역/정산 전환, 환급 */
+.mseg{display:flex;background:#E9ECF1;border-radius:14px;padding:4px;margin-bottom:14px;gap:4px}
+.mseg button{flex:1;border:0;background:none;padding:9px 0;border-radius:11px;font-weight:600;font-size:14px;color:var(--ink2)}
+.mseg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(25,31,40,.08)}
+.exp.refund .amt{color:#16A34A}
+.paysum .rf{color:#16A34A;font-weight:600}
+.explist .exp.pressing{transform:scale(.98);transition:transform .2s}
+.explist .exp.dragging{box-shadow:0 12px 30px rgba(25,31,40,.18)}
+/* Day 칩: 색 점은 Day 옆, 일정 개수 없음 */
+.day::after{display:none}
+.day{padding:10px 14px 11px}
+.day b{display:flex;align-items:center;justify-content:center;gap:5px}
+.ddot{width:6px;height:6px;border-radius:50%;background:var(--dc);flex:none}
+/* 오프라인 배지: 리퀴드 글래스 */
+.netbadge{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.55);color:var(--ink);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);border:1px solid rgba(255,255,255,.7);box-shadow:0 8px 28px rgba(25,31,40,.14),inset 0 1px 0 rgba(255,255,255,.8);padding:9px 16px;font-size:12px;white-space:nowrap;bottom:calc(92px + var(--sb,0px))}
+.netbadge i{width:7px;height:7px;border-radius:50%;background:#8B95A1;flex:none;box-shadow:0 0 0 3px rgba(139,149,161,.2)}
+.netbadge b{font-weight:700}
+.netbadge span{color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
+/* 리캡: 여행 성격 + 움직임 */
+.rc-a{opacity:0;transform:translateY(18px) scale(.985);transition:opacity .6s cubic-bezier(.2,.8,.2,1) var(--d,0ms),transform .7s cubic-bezier(.2,.8,.2,1) var(--d,0ms)}
+.rc-a.in{opacity:1;transform:none}
+.rc-hero{position:relative;overflow:hidden;border-radius:28px}
+.rc-hero > *:not(.rc-glow){position:relative;animation:rcUp .8s cubic-bezier(.2,.8,.2,1) both}
+.rc-hero .rc-city{animation-delay:.05s}.rc-hero h1{animation-delay:.15s}.rc-hero .rc-dates{animation-delay:.25s}.rc-hero .rc-people{animation-delay:.35s}
+.rc-glow{position:absolute;inset:-40%;background:radial-gradient(40% 40% at 30% 40%,rgba(46,91,255,.22),transparent 70%),radial-gradient(35% 35% at 70% 60%,rgba(255,214,107,.35),transparent 70%);animation:rcGlow 9s ease-in-out infinite alternate;pointer-events:none}
+@keyframes rcUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes rcGlow{from{transform:rotate(0) scale(1)}to{transform:rotate(25deg) scale(1.15)}}
+.rc-people .av{animation:rcPop .5s cubic-bezier(.3,1.6,.5,1) both}
+.rc-people .av:nth-child(2){animation-delay:.45s}.rc-people .av:nth-child(3){animation-delay:.52s}.rc-people .av:nth-child(4){animation-delay:.59s}.rc-people .av:nth-child(1){animation-delay:.38s}
+@keyframes rcPop{from{transform:scale(0)}to{transform:scale(1)}}
+.rc-grid.in > div{animation:rcPop .5s cubic-bezier(.3,1.5,.5,1) both}
+.rc-grid.in > div:nth-child(2){animation-delay:.06s}.rc-grid.in > div:nth-child(3){animation-delay:.12s}.rc-grid.in > div:nth-child(4){animation-delay:.18s}.rc-grid.in > div:nth-child(5){animation-delay:.24s}.rc-grid.in > div:nth-child(6){animation-delay:.3s}
+.rc-money .bars > div{transform-origin:left;transform:scaleX(0);transition:transform 1s cubic-bezier(.2,.8,.2,1) .3s}
+.rc-money.in .bars > div{transform:none}
+.rc-type{background:#fff;border-radius:24px;padding:22px 20px 18px;margin-bottom:14px;text-align:center}
+.rct-e{font-size:44px;line-height:1}
+.rc-type.in .rct-e{animation:rcBob 2.4s ease-in-out .6s infinite}
+@keyframes rcBob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-6px) rotate(-6deg)}}
+.rct-k{font-size:12px;color:var(--ink2);margin-top:10px}
+.rct-t{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-top:2px}
+.rct-s{font-size:13px;color:var(--ink2);margin-top:4px}
+.rct-bars{margin-top:16px;display:flex;flex-direction:column;gap:8px;text-align:left}
+.rct-row{display:grid;grid-template-columns:62px 1fr 38px;align-items:center;gap:8px;font-size:12px}
+.rct-row > div{height:8px;border-radius:99px;background:var(--fill);overflow:hidden}
+.rct-row i{display:block;height:100%;width:0;border-radius:99px;background:var(--accent,#2E5BFF);transition:width 1.1s cubic-bezier(.2,.8,.2,1) .35s}
+.rct-row:first-child i{background:#FFD66B}
+.rc-type.in .rct-row i{width:var(--w)}
+.rct-row b{text-align:right;font-variant-numeric:tabular-nums}
+/* 한줄평 */
+.rcmts{flex-basis:100%;display:flex;flex-direction:column;gap:4px}
+.rcmt{align-self:flex-start;border:0;background:var(--fill);border-radius:10px;padding:6px 10px;font-size:12px;color:var(--ink2);text-align:left;max-width:100%}
+.rcmt.has{color:var(--ink);background:#FFF6D6}
+.rcmt-o{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)}
+.rcmt-o i{font-style:normal;margin-left:auto;font-size:11px}
+.aw-row b small{display:block;font-weight:500;font-size:11px;color:var(--ink2);margin-top:2px;white-space:normal}
+.wishsort .hideadd{margin-right:auto;order:-1;padding:4px 10px;border-radius:99px;background:#fff}
+.wishsort .hideadd.on{background:var(--ink);color:#fff;font-weight:600}
+/* 관리자: 일자별 그래프 */
+.udaily{background:var(--fill);border-radius:14px;padding:12px 12px 10px;margin-bottom:12px}
+.udsvg{display:block;width:100%;height:120px;margin-top:8px}
+.udgrid{stroke:rgba(25,31,40,.08);stroke-width:1;vector-effect:non-scaling-stroke}
+.udb{cursor:pointer}.udb.sel rect:not([fill=transparent]){opacity:1}
+.udaily:has(.udb.sel) .udb:not(.sel) rect{opacity:.35}
+.udax{display:flex;justify-content:space-between;font-size:10px;color:var(--ink2);margin-top:4px}
+.udleg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--ink2);margin-top:8px}
+.udleg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.uddet{margin-top:6px;line-height:1.5}
+/* 같은 날 출발·도착 한 상자 */
+.flightrow.pair .itime small{display:block;font-size:11px;font-weight:500;color:var(--ink2);margin-top:2px}
+.flightrow.pair .fl-arrow{color:var(--ink3,#8B95A1);font-weight:400;margin:0 2px}
+.flightrow.pair .fl-dur{font-size:11px;font-weight:500;color:var(--ink2);margin-left:6px;padding:2px 7px;border-radius:99px;background:var(--fill)}
+/* 이동 수단: 점선 위에 동그란 버튼 */
+.timeline > .seg{min-height:34px;margin:-2px 0 8px;padding-left:0}
+.timeline > .seg .segsel{position:absolute;left:-31px;top:50%;transform:translateY(-50%);width:30px;height:30px;padding:0;justify-content:center;border-radius:50%;font-size:15px;background:#fff;box-shadow:0 0 0 3px var(--fill,#F2F4F6),0 2px 8px rgba(25,31,40,.1);z-index:1}
+.timeline > .seg .segsel span,.timeline > .seg .segsel .ti-caret{display:none}
+.timeline > .seg .segsel:active{transform:translateY(-50%) scale(.92)}
+.tichip{border:0;background:#EAF0FF;color:#2E5BFF;font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap;max-width:46%;overflow:hidden;text-overflow:ellipsis}
+.tichip.add{background:none;color:var(--ink3,#8B95A1);box-shadow:inset 0 0 0 1px var(--line);font-weight:500}
+.sp-ti{border-top:1px solid rgba(25,31,40,.06);margin-top:4px;padding-top:10px}
+.tiview{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.85);display:grid;place-items:center;padding:20px}
+.tiview img{max-width:100%;max-height:100%;border-radius:12px}
