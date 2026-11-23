@@ -24,7 +24,7 @@ const S = {
   access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
-  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', fresh: {}, share: null,
+  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), fresh: {}, share: null,
 };
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
@@ -1959,6 +1959,8 @@ function toKRW(t, e) {
   const v = e.cur === 'KRW' ? a : a * (Number(e.rate) || Number(t.rate) || 1);
   return e.refund ? -v : v; // 환급(택스리펀 등)은 빼기
 }
+const CUR_NAME = { JPY: '엔', USD: '달러', EUR: '유로', CNY: '위안', TWD: '대만달러', HKD: '홍콩달러', THB: '바트', VND: '동', SGD: '싱가포르달러', PHP: '페소', GBP: '파운드', AUD: '호주달러' };
+const curName = (c) => CUR_NAME[c] || c;
 const rateLabel = (cur, perOne) => `${rateUnit(cur)} ${cur} = ${num((Number(perOne) || 0) * rateUnit(cur))}원`;
 /** 같은 날 지출 순서: 꾹 눌러 옮긴 순서(pos)가 있으면 그것, 없으면 최근 것 위 */
 function sortDayExp(es) {
@@ -1980,13 +1982,24 @@ function viewMoney(t) {
   const byPay = {}; list.forEach((e) => { if (e.pay && !e.refund) byPay[e.pay] = (byPay[e.pay] || 0) + toKRW(t, e); });
   const payBits = PAY_METHODS.filter((p) => byPay[p]).map((p) => `<span>${PAY_ICON[p]} ${p} ${won(byPay[p])}</span>`);
   if (refunds > 0.5) payBits.push(`<span class="rf">↩︎ 환급 +${won(refunds)}</span>`);
-  const payLine = payBits.length ? `<div class="paysum">${payBits.join('')}</div>` : '';
   const groups = {}; list.forEach((e) => { (groups[e.date || '날짜 없음'] ||= []).push(e); });
   const gkeys = Object.keys(groups).sort((a, b) => b.localeCompare(a));
-  return `${seg}<div class="sum"><div class="lbl">총 지출${refunds > 0.5 ? ' (환급 뺀 금액)' : ''} ${t.currency && t.currency !== 'KRW' ? `· 기본 환율 ${esc(rateLabel(t.currency, t.rate))}` : ''}</div>
-    <div class="big">${won(total)}</div>
+  const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
+  const showLocal = hasLocal && S.sumLocal;
+  // 현지 통화로 보기: 그 통화로 쓴 건 원래 금액, 나머지는 원화를 기본 환율로 나눔
+  const loc = (e) => (e.cur === t.currency ? (e.refund ? -1 : 1) * (Number(e.amount) || 0) : toKRW(t, e) / Number(t.rate));
+  const mv = showLocal ? (krw) => `${num(Math.round(krw / Number(t.rate)))} ${esc(curName(t.currency))}` : won;
+  let bigTxt = won(total);
+  if (showLocal) {
+    const lt = list.reduce((s, e) => s + loc(e), 0);
+    bigTxt = `${num(Math.round(lt))} ${esc(curName(t.currency))}`;
+  }
+  const payBits2 = showLocal ? PAY_METHODS.filter((p) => byPay[p]).map((p) => `<span>${PAY_ICON[p]} ${p} ${mv(byPay[p])}</span>`).concat(refunds > 0.5 ? [`<span class="rf">↩︎ 환급 +${mv(refunds)}</span>`] : []) : payBits;
+  const payLine2 = payBits2.length ? `<div class="paysum">${payBits2.join('')}</div>` : '';
+  return `${seg}<div class="sum ${hasLocal ? 'curtog' : ''}" ${hasLocal ? 'data-act="sumCur" role="button"' : ''}><div class="lbl">총 지출${refunds > 0.5 ? ' (환급 뺀 금액)' : ''} ${hasLocal ? `· 기본 환율 ${esc(rateLabel(t.currency, t.rate))}` : ''}${hasLocal ? `<span class="curchip">${showLocal ? '원화로 보기' : `${esc(curName(t.currency))}로 보기`} ⇄</span>` : ''}</div>
+    <div class="big">${bigTxt}</div>
     <div class="bars">${spent ? cats.map(([c, v]) => `<div style="width:${(v / spent) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
-    <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${won(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${won(total / n)}</span>` : ''}</div>${payLine}</div>
+    <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${mv(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${mv(total / n)}</span>` : ''}</div>${payLine2}</div>
   ${list.length ? `${list.length > 1 ? '<div class="lphint" style="text-align:right;margin:-4px 4px 0">꾹 눌러서 순서 바꾸기</div>' : ''}` + gkeys.map((d) => { const es = sortDayExp(groups[d]); return `<div class="dategrp">${esc(d.includes('-') ? md(d) : d)} · ${won(es.reduce((s, e) => s + toKRW(t, e), 0))}</div>
     <div class="explist" data-d="${esc(d)}">${es.map((e) => {
       const col = ECATS[e.cat] || '#888'; const local = e.cur !== 'KRW' && t.currency && t.currency !== 'KRW';
@@ -3008,6 +3021,7 @@ document.addEventListener('click', (ev) => {
     case 'tab': S.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
     case 'rcomment': commentSheet(t, S.items.find((i) => i.id === id)); break;
     case 'moneyView': S.moneyView = el.dataset.v; render(); break;
+    case 'sumCur': S.sumLocal = !S.sumLocal; try { localStorage.setItem('sumLocal', S.sumLocal ? '1' : ''); } catch {} render(); break;
     case 'day': S.day = el.dataset.v; S.mapAll = false; render(); break;
     case 'newItem': itemForm(t, null); break;
     case 'editItem': ev.stopPropagation(); itemForm(t, S.items.find((i) => i.id === id)); break;
