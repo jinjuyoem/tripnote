@@ -1184,3 +1184,61 @@ label.f[hidden]{display:none}
 .rc-hero.rc-intro{border-radius:0;width:100vw;margin:calc(-12px - var(--st,0px)) calc(50% - 50vw) 0;min-height:100svh;padding:calc(24px + var(--st,0px)) 24px 60px;box-sizing:border-box;background:linear-gradient(180deg,#E9F0FF 0%,#F6F0E2 70%,var(--fill,#F2F4F6) 100%)}
 .rc-intro .rc-glow{inset:-20%}
 .toast{z-index:120}
+
+/* 일정 사진 */
+.iphotos{display:flex;gap:6px;margin-top:8px}
+.iph{width:44px;height:44px;border-radius:10px;overflow:hidden;border:0;padding:0;background:var(--fill,#F2F4F6);flex:none;cursor:pointer}
+.iph img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* 리캡: 큰 이동 지도 */
+.rcm{background:#fff;border-radius:20px;padding:6px;margin-bottom:12px}
+.rcm-svg{display:block;width:100%;height:auto;overflow:visible}
+.rcm-leg{fill:none;stroke:#2E5BFF;stroke-width:3;stroke-linecap:round;stroke-dasharray:.5 9}
+.rcm-draw{stroke-dasharray:1;stroke-dashoffset:1}
+.rcm-dot circle{fill:#fff;stroke:#2E5BFF;stroke-width:3}
+.rcm-dot circle.st{fill:#2E5BFF}
+.rcm-dot circle.en{fill:#FFD66B}
+.rcm-dot text{font-size:13px;font-weight:600;fill:#191F28;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+.rcm-dot{opacity:0;transform-box:fill-box;transform-origin:center;transform:scale(.6)}
+.rcm.in .rcm-dot{animation:rcmPop .5s cubic-bezier(.3,1.6,.5,1) forwards;animation-delay:calc(.3s + var(--k,0) * .55s)}
+.rcm.in .rcm-draw{animation:rcmDraw .6s ease forwards;animation-delay:calc(.55s + var(--k,0) * .55s)}
+@keyframes rcmDraw{to{stroke-dashoffset:0}}
+@keyframes rcmPop{to{opacity:1;transform:none}}
+.rcm-route span{display:inline-flex;align-items:baseline;gap:4px}
+.rcm-route small{font-size:10px;color:var(--ink2)}
+
+/* 리캡: 숫자로 보는 여행 */
+.rc-num{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rc-num > div{background:#fff;border-radius:18px;padding:14px 14px 12px;display:flex;flex-direction:column;gap:3px}
+.rc-num span{font-size:24px}
+.rc-num b{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.rc-num i{font-style:normal;font-size:11.5px;color:var(--ink2);line-height:1.4}
+.rc-num.in > div{animation:rcPop .5s cubic-bezier(.3,1.5,.5,1) both}
+.rc-num.in > div:nth-child(2){animation-delay:.12s}.rc-num.in > div:nth-child(3){animation-delay:.24s}.rc-num.in > div:nth-child(4){animation-delay:.36s}
+
+/* 리캡: 하루하루 사진 */
+.rc-pics{display:flex;gap:10px;overflow-x:auto;padding:12px 4px 6px;margin:0 -4px;scrollbar-width:none}
+.rc-pics::-webkit-scrollbar{display:none}
+.rc-pic{flex:none;width:104px;background:#fff;border:0;padding:6px 6px 8px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.12);transform:rotate(var(--r));cursor:pointer;font:inherit}
+.rc-pic img{width:92px;height:92px;object-fit:cover;display:block;border-radius:2px}
+.rc-pic i{display:block;font-style:normal;font-size:10.5px;color:var(--ink2);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 리캡: 후기 포스트잇 */
+.rv-board{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;padding:8px 2px 4px}
+.rvp{position:relative;background:var(--bg);border-radius:3px 3px 16px 3px;padding:16px 12px 10px;transform:rotate(var(--rot));box-shadow:0 8px 16px rgba(40,30,10,.12),0 1px 2px rgba(40,30,10,.08);min-height:110px;display:flex;flex-direction:column}
+.rvp:nth-child(even){margin-top:16px}
+.rvp::before{content:"";position:absolute;top:-8px;left:50%;width:46px;height:15px;margin-left:-23px;background:rgba(255,255,255,.7);transform:rotate(calc(var(--rot) * -1.6));border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.rvp-mood{position:absolute;right:8px;top:6px;font-size:22px}
+.rvp p{margin:6px 0 8px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;flex:1;padding-right:18px}
+.rvp-who{display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(0,0,0,.6);justify-content:flex-end}
+.rvp-who .av{border:0}
+.rvp .nt-del{left:8px;right:auto;bottom:8px}
+.go:not(.settled) .rvp{animation:rvStick .55s cubic-bezier(.3,1.4,.5,1) both;animation-delay:calc(var(--k) * .14s)}
+@keyframes rvStick{from{opacity:0;transform:translateY(-22px) rotate(calc(var(--rot) * 4)) scale(1.1)}to{opacity:1;transform:rotate(var(--rot))}}
+
+/* 스토리 이미지 미리보기 */
+.story-view{display:flex;flex-direction:column;gap:12px}
+.story-view img{max-height:82vh}
+.sv-hint{color:#fff;font-size:13px;text-align:center}
+.sv-hint a{color:#FFD66B;margin-left:8px}
+@media (prefers-reduced-motion: reduce){.rcm-dot{opacity:1;transform:none}.rcm-draw{stroke-dashoffset:0}.go .rvp{animation:none!important}}

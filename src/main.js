@@ -8,6 +8,7 @@ import { createMap, mountPlaceSearch, mapsEnabled, computeRoute, geocodeAirport,
 import { tripWeather, geocodeCity } from './weather.js';
 import { bump, setMeterUser, UMETERS, ptMonth } from './meter.js';
 import { openTimeWheel, timeField, wireTimeFields } from './timewheel.js';
+import { LOGO_SVG } from './logo.js';
 import {
   esc, uid, randCode, won, num, md, hm, parseD, fmtD, tripDays, dday,
   ICATS, ECATS, DAYCOLORS, CURRENCIES, toast, copy,
@@ -1125,6 +1126,15 @@ function daySummaryHtml(t, d) {
   </div>`;
 }
 const refreshDaySum = () => { const t = trip(); const el = $('daysum'); if (t && el) el.innerHTML = daySummaryHtml(t, S.day); };
+/** 일정 카드 사진 (작게). 아직 안 받은 건 받고 다시 그림 */
+let photoWait = 0; const photoFail = new Set();
+function itemPhotosHtml(t, i) {
+  const ids = i.photos || []; if (!ids.length) return '';
+  const miss = ids.filter((id) => !qrCache.has(id) && !photoFail.has(id));
+  if (miss.length) { photoWait++; Promise.all(miss.map((id) => loadQr(t, id).then((d) => { if (!d) photoFail.add(id); }))).then(() => { if (!--photoWait) renderSoon(); }); }
+  return `<div class="iphotos">${ids.map((id) => { const d = qrCache.get(id); return `<button class="iph" data-act="photoView" data-id="${esc(id)}">${d && d !== 'loading' ? `<img src="${d}" alt="" loading="lazy">` : ''}</button>`; }).join('')}</div>`;
+}
+function viewPhoto(src) { if (!src) return; const w = document.createElement('div'); w.className = 'tiview'; w.innerHTML = `<img src="${src}" alt="">`; w.onclick = () => w.remove(); document.body.appendChild(w); }
 function itemSpendHtml(t, i) {
   const es = S.expenses.filter((e) => e.itemId === i.id);
   if (!es.length) return '';
@@ -1188,6 +1198,8 @@ async function openRecap(t) {
     const q = e.target.closest('[data-rc]')?.dataset.rc;
     if (q === 'x') { v.remove(); document.body.classList.remove('noscroll'); }
     if (q === 'copy') copy(v.querySelector('[data-rc=copy]').dataset.text, '리캡을 복사했어요. 단톡방에 붙여넣기!');
+    if (q === 'pic') viewPhoto(e.target.closest('[data-rc]').querySelector('img')?.src);
+    if (q === 'story') v._story?.(e.target.closest('[data-rc]'));
   });
   // 아직 계산 안 된 이동 구간 채우기 (걸은 시간 합계용)
   if (mapsEnabled) {
@@ -1205,6 +1217,10 @@ async function openRecap(t) {
     }
     await Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 12000))]);
   }
+  // 날씨(그날 실제 날씨)·사진 미리 받기 — 너무 오래 걸리면 있는 것만
+  const wxJob = S.weatherFor === t.id || !t.geo ? null : tripWeather(t.geo, days).then((w) => { if (S.tripId === t.id) { S.weather = w; S.weatherFor = t.id; } }).catch(() => {});
+  const picIds = S.items.flatMap((i) => i.photos || []);
+  await Promise.race([Promise.all([wxJob, ...picIds.map((id) => loadQr(t, id))]), new Promise((r) => setTimeout(r, 6000))]);
   const per = days.map((d) => ({ d, ...dayStats(t, d), items: dayItems(d).filter((i) => i.kind !== 'memo') }));
   const sum = (k) => per.reduce((s, x) => s + x[k], 0);
   const total = S.expenses.reduce((s2, e) => s2 + toKRW(t, e), 0);
@@ -1217,11 +1233,16 @@ async function openRecap(t) {
   const done = S.items.filter((i) => i.kind !== 'memo' && i.done).length;
   const leftWish = S.places.filter((p) => !(p.addedTo && S.items.some((i) => i.id === p.addedTo.itemId)));
   const W = S.weatherFor === t.id ? S.weather : {};
+  const areas = bigMoves(t, days); const fst = flightStats(t); const wst = weatherStats(W, days);
+  const walkM = sum('walkM'); const nPics = picIds.filter((id) => qrCache.get(id) && qrCache.get(id) !== 'loading').length;
+  const picsOf = (it) => (it.photos || []).map((id) => qrCache.get(id)).filter((d) => d && d !== 'loading');
   const nights = days[0].startsWith('day') ? '' : `${Math.max(0, days.length - 1)}박 ${days.length}일`;
   const dayLabel = (x, i) => `Day ${i + 1}${x.d.startsWith('day') ? '' : ' · ' + md(x.d)}`;
   const text = [`🎞 ${t.name} 리캡${t.city ? ' · ' + t.city : ''}${nights ? ' · ' + nights : ''}`,
     `📍 ${sum('places')}곳 · 🍜 ${sum('meals')}끼 · ☕ ${sum('cafes')}곳 · 🛍 ${sum('shops')}곳`,
+    ...(areas.seq.length > 1 ? [`🗺 ${areas.seq.map((a) => a.name).join(' → ')}`] : []),
     `🚶 ${fmtDur(sum('walkS') || 60)} 걸음 (${fmtDist(sum('walkM'))})`,
+    ...(fst.n ? [`✈️ 하늘에서 ${fmtDur(fst.mins * 60)}${fst.km ? ` · ${num(Math.round(fst.km))}km` : ''}`] : []),
     `💸 총 ${won(total)} (1인당 약 ${won(total / ppl)})`,
     ...per.map((x, i) => `${dayLabel(x, i)}: ${x.items.map((it) => it.title).join(' → ') || '-'}`)].join('\n');
   v.innerHTML = `<div class="rc-in">
@@ -1235,12 +1256,20 @@ async function openRecap(t) {
       <div class="rc-scroll">천천히 내려보세요<i>↓</i></div></section>
     ${rcCh('우리가 다녀온 곳들', '', `<div class="rc-grid rc-a">
       <div><span>📍</span><b data-cnt="${sum('places')}">${sum('places')}</b><i>곳 방문${done ? ` (${done} 완료)` : ''}</i></div>
-      <div><span>🚶</span><b>${sum('walkS') ? fmtDur(sum('walkS')) : '-'}</b><i>${sum('walkM') ? fmtDist(sum('walkM')) + ' 걸음' : '걸은 시간'}</i></div>
+      <div><span>🗺</span><b data-cnt="${areas.list.length || 1}" data-suf="곳">${areas.list.length || 1}곳</b><i>도시·동네</i></div>
       <div><span>🍜</span><b data-cnt="${sum('meals')}" data-suf="끼">${sum('meals')}끼</b><i>맛집</i></div>
       <div><span>☕</span><b data-cnt="${sum('cafes')}" data-suf="곳">${sum('cafes')}곳</b><i>카페</i></div>
       <div><span>🛍</span><b data-cnt="${sum('shops')}" data-suf="곳">${sum('shops')}곳</b><i>쇼핑</i></div>
-      <div><span>✈️</span><b data-cnt="${S.flights.length}" data-suf="편">${S.flights.length}편</b><i>비행</i></div>
+      <div><span>📷</span><b data-cnt="${nPics}" data-suf="장">${nPics}장</b><i>사진</i></div>
     </div>`)}
+    ${areas.seq.length > 1 ? rcCh('이렇게 움직였어요', areas.seq.map((a) => a.name).join(' → '), `<div class="rcm rc-a">${routeMapSvg(areas)}</div>
+      <div class="rc-route rcm-route rc-a">${areas.seq.map((a, k) => `<span style="--c:#2E5BFF;--k:${k}">${esc(a.name)}<small>${esc(a.dayTxt)}</small></span>`).join('<em>→</em>')}</div>`) : ''}
+    ${walkM || fst.n || wst.n ? rcCh('숫자로 보는 여행', '', `<div class="rc-num rc-a">
+      ${walkM ? `<div><span>🚶</span><b data-cnt="${Math.round(walkM / 100) / 10}" data-dec="1" data-suf="km">${fmtKm(walkM)}km</b><i>약 ${num(Math.round(walkM / 0.72 / 100) * 100)}보 · ${esc(walkFun(walkM))}</i></div>` : ''}
+      ${fst.n ? `<div><span>✈️</span><b>${fmtDur(fst.mins * 60)}</b><i>하늘 위에서${fst.km ? ` · ${num(Math.round(fst.km))}km` : ''}${fst.mins >= 120 ? ` · 영화 ${Math.floor(fst.mins / 120)}편 볼 시간` : ''}</i></div>` : ''}
+      ${wst.n ? `<div><span>${wst.rain ? '🌦' : '☀️'}</span><b>맑은 날 ${wst.sun}일</b><i>${wst.rain ? `비·눈 온 날 ${wst.rain}일${wst.rain >= wst.sun ? ' · 그래도 즐거웠죠' : ''}` : '날씨 요정이 함께했어요'}</i></div>` : ''}
+      ${wst.hot ? `<div><span>🌡</span><b>${Math.round(wst.hot.max)}°</b><i>제일 더운 날 · Day ${wst.hot.k + 1}${wst.cold && wst.cold.min != null ? ` / 제일 추울 때 ${Math.round(wst.cold.min)}°` : ''}</i></div>` : ''}
+    </div>`) : ''}
     ${ttype ? rcCh('그래서, 이번 여행은', '', `<div class="rc-type rc-a"><div class="rct-e">${ttype.emoji}</div><div class="rct-t">${esc(ttype.title)}</div><div class="rct-s">${esc(ttype.sub)}</div>
       <div class="rct-bars">${ttype.rows.map(([k, e, x]) => `<div class="rct-row"><span>${e} ${k}</span><div><i style="--w:${Math.round(x * 100)}%"></i></div><b>${Math.round(x * 100)}%</b></div>`).join('')}</div></div>`) : ''}
     ${total ? rcCh('얼마나 썼을까요', '아깝지 않은 돈이었길', `<div class="sum rc-money rc-a"><div class="lbl">총 지출</div><div class="big" data-cnt="${Math.round(total)}" data-won="1">${won(total)}</div>
@@ -1252,19 +1281,25 @@ async function openRecap(t) {
     </div>` : ''}`) : ''}
     ${(() => { const a = awardsHtml(t); return a ? rcCh('🏆 우리끼리 어워드', '', a) : ''; })()}
     ${rcCh('하루하루 다시 걸어볼게요', '', per.map((x, i) => `<div class="rc-day rc-a"><div class="rc-dh"><b>${esc(dayLabel(x, i))}</b>${W[x.d] ? `<span>${W[x.d].emoji} ${Math.round(W[x.d].max)}°</span>` : ''}${x.spent ? `<span class="mono">${won(x.spent)}</span>` : ''}</div>
-      <div class="rc-route">${x.items.length ? x.items.map((it, k) => `<span style="--c:${(ICATS[it.cat] || ICATS.기타)[1]};--k:${k}">${esc(it.title)}</span>`).join('<em>→</em>') : '<span class="muted">기록 없음</span>'}</div></div>`).join(''), 'days')}
+      <div class="rc-route">${x.items.length ? x.items.map((it, k) => `<span style="--c:${(ICATS[it.cat] || ICATS.기타)[1]};--k:${k}">${esc(it.title)}</span>`).join('<em>→</em>') : '<span class="muted">기록 없음</span>'}</div>
+      ${(() => { const ps = x.items.flatMap((it) => picsOf(it).map((src) => [src, it.title])); return ps.length ? `<div class="rc-pics">${ps.map(([src, cap], k) => `<button class="rc-pic" data-rc="pic" style="--r:${[-2.5, 1.8, -1, 2.6][k % 4]}deg"><img src="${src}" alt="" loading="lazy"><i>${esc(cap)}</i></button>`).join('')}</div>` : ''; })()}</div>`).join(''), 'days')}
     ${leftWish.length ? rcCh('다음엔 여기도', `못 간 찜 ${leftWish.length}곳`, `<div class="rc-route rc-a">${leftWish.map((p, k) => `<span style="--c:${(ICATS[p.cat] || ICATS.기타)[1]};--k:${k}">${esc(p.name)}</span>`).join('')}</div>`) : ''}
     <section class="rc-ch rc-end"><p class="rc-cap rc-a">수고했어요, 또 같이 떠나요</p><div class="rc-a rc-plane">✈︎</div>
     <div id="rcNotes"></div>
-    <button class="btn pri block" data-rc="copy" data-text="${esc(text)}" style="margin:22px 0 8px">리캡 텍스트 복사하기</button></section>
+    <button class="btn pri block" data-rc="story" style="margin:22px 0 8px">📸 스토리 이미지로 저장</button>
+    <button class="btn ghost block" data-rc="copy" data-text="${esc(text)}" style="margin:0 0 8px">리캡 텍스트 복사하기</button></section>
   </div>`;
   animateRecap(v);
+  const pics = per.flatMap((x) => x.items.flatMap((it) => picsOf(it))).slice(0, 3);
+  v._story = (btn) => saveStory(t, { nights, areas, walkM, places: sum('places'), meals: sum('meals'), fst, pics }, btn);
   const box = v.querySelector('#rcNotes'); const copyBtn = v.querySelector('[data-rc=copy]');
   const syncCopy = (notes) => {
     const extra = notes.filter((n) => !n.to).map((n) => `✍️ ${noteName(t, n)} ${n.mood || ''} "${n.text}"`);
     copyBtn.dataset.text = extra.length ? `${text}\n\n${extra.join('\n')}` : text;
   };
   syncCopy(await drawNotes(t, box));
+  const nio = new IntersectionObserver((ents) => { if (ents.some((e) => e.isIntersecting)) { nio.disconnect(); box.classList.add('go'); setTimeout(() => box.classList.add('settled'), 2600); } }, { root: v, threshold: 0.15 });
+  nio.observe(box);
   box.addEventListener('click', (e) => onNotesClick(e, t, box, syncCopy));
 }
 
@@ -1289,13 +1324,224 @@ function tripType(t) {
   const [emoji, title, sub] = x < 0.42 ? ['🎒', '골고루 즐긴 여행이었어요', `조금 더 ${top} 쪽이었어요`] : T[top];
   return { emoji, title, sub, rows };
 }
+/* ---------- 리캡: 큰 이동 · 숫자 · 스토리 이미지 ---------- */
+const geoKm = (a, b) => {
+  const R = 6371, r = Math.PI / 180; const dLa = (b.lat - a.lat) * r, dLo = (b.lng - a.lng) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+const inKorea = (g) => g && g.lat > 33 && g.lat < 38.7 && g.lng > 124.5 && g.lng < 131;
+/** 주소에서 도시 이름만: '일본 오사카부 오사카시 주오구…' → 오사카, '서울특별시 중구' → 서울, '도쿄도 시부야구' → 도쿄 */
+function areaName(addr) {
+  const a = String(addr || '').replace(/〒\s?[\d-]+/g, ' ');
+  const tk = a.split(/[\s,]+/).filter((x) => x && !/\d/.test(x));
+  let m = tk.find((x) => /(특별시|광역시|특별자치시)$/.test(x)); if (m) return m.replace(/(특별시|광역시|특별자치시)$/, '');
+  m = tk.find((x) => x.length >= 2 && /시$/.test(x)); if (m) return m.slice(0, -1);
+  if (tk.includes('도쿄도')) return '도쿄';
+  m = tk.find((x) => x.length >= 2 && /군$/.test(x)); if (m) return m.slice(0, -1);
+  m = tk.find((x) => /^(홍콩|마카오|싱가포르)/.test(x)); if (m) return m.replace(/(특별행정구)$/, '');
+  m = tk.find((x) => x.length >= 3 && /구$/.test(x)); if (m) return m.slice(0, -1);
+  return '';
+}
+/** 영어 주소의 도시 후보들 ('Namba, Chuo Ward, Osaka, Japan' → [Namba, Osaka]) — 여행 전체에서 제일 자주 나오는 걸 고름 */
+const enCands = (addr) => String(addr || '').replace(/〒\s?[\d-]+/g, ' ').split(',').map((x) => x.trim().replace(/ City$/i, ''))
+  .filter((x) => x && !/\d/.test(x) && !/(Ward|Prefecture|District|Province|County|Japan|Korea|China|Taiwan|Thailand|Vietnam|-ku|-shi)\b/i.test(x) && /^[A-Za-z][A-Za-z .'-]+$/.test(x));
+/** 큰 이동: 일정 장소를 도시 단위로 묶어서 다닌 순서대로 (같은 도시가 이어지면 하나) */
+function bigMoves(t, days) {
+  const pts = [];
+  days.forEach((d, k) => dayItems(d).forEach((i) => { if (i.kind !== 'memo' && ll(i) && i.cat !== '이동') pts.push({ k, lat: +i.lat, lng: +i.lng, name: areaName(i.address), addr: i.address || '', title: i.title }); }));
+  // 영어 주소: 근처(15km)에 한글 이름 있는 곳이 있으면 그 이름, 아니면 여행 전체에서 제일 많이 나온 후보
+  const freq = new Map(); const cands = new Map();
+  days.forEach((d) => dayItems(d).forEach((i) => { const c = enCands(i.address); cands.set(i.address, c); c.forEach((x) => freq.set(x, (freq.get(x) || 0) + 1)); }));
+  for (const p of pts) {
+    if (p.name || !p.addr) continue;
+    let near = null, bd = 15; for (const q of pts) if (q.name && !q.en) { const dd = geoKm(p, q); if (dd < bd) { bd = dd; near = q; } }
+    if (near) { p.name = near.name; continue; }
+    const c = cands.get(p.addr) || []; if (c.length) { p.name = c.reduce((m, x) => ((freq.get(x) || 0) >= (freq.get(m) || 0) ? x : m), c[0]); p.en = true; }
+  }
+  for (const p of pts) {
+    if (p.name) continue;
+    let best = null, bd = 15; for (const q of pts) if (q.name) { const dd = geoKm(p, q); if (dd < bd) { bd = dd; best = q; } }
+    p.name = best ? best.name : p.title;
+  }
+  const map = new Map();
+  for (const p of pts) { const a = map.get(p.name) || { name: p.name, lat: 0, lng: 0, n: 0 }; a.lat += p.lat; a.lng += p.lng; a.n++; map.set(p.name, a); }
+  const list = [...map.values()].map((a) => ({ ...a, lat: a.lat / a.n, lng: a.lng / a.n }));
+  const seq = [];
+  for (const p of pts) {
+    const last = seq[seq.length - 1];
+    if (last && last.name === p.name) { last.k2 = p.k; continue; }
+    const a = list.find((x) => x.name === p.name); seq.push({ name: p.name, lat: a.lat, lng: a.lng, k1: p.k, k2: p.k });
+  }
+  seq.forEach((x) => { x.dayTxt = x.k1 === x.k2 ? `Day ${x.k1 + 1}` : `Day ${x.k1 + 1}–${x.k2 + 1}`; });
+  return { list, seq };
+}
+/** 위경도 → 화면 좌표 (가운데 정렬, 비율 유지) */
+function projector(list, W, H, padX, padY) {
+  const lat0 = list.reduce((s2, a) => s2 + a.lat, 0) / (list.length || 1); const cx = Math.cos((lat0 * Math.PI) / 180);
+  const xs = list.map((a) => a.lng * cx), ys = list.map((a) => -a.lat);
+  const x1 = Math.min(...xs), x2 = Math.max(...xs), y1 = Math.min(...ys), y2 = Math.max(...ys);
+  const sc = Math.min((W - 2 * padX) / Math.max(x2 - x1, 1e-6), (H - 2 * padY) / Math.max(y2 - y1, 1e-6));
+  const ox = (W - (x2 - x1) * sc) / 2 - x1 * sc, oy = (H - (y2 - y1) * sc) / 2 - y1 * sc;
+  return (a) => [a.lng * cx * sc + ox, -a.lat * sc + oy];
+}
+/** 두 점 사이 살짝 휜 곡선의 조절점 */
+function bend(p, q, k) {
+  const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; const dx = q[0] - p[0], dy = q[1] - p[1];
+  const f = (k % 2 ? -1 : 1) * 0.22; return [mx - dy * f, my + dx * f];
+}
+function routeMapSvg(areas) {
+  const W = 340, H = 230; const P = projector(areas.list, W, H, 56, 40);
+  const pt = (a) => P(a).map((n) => Math.round(n * 10) / 10);
+  const legs = []; for (let k = 1; k < areas.seq.length; k++) {
+    const p = pt(areas.seq[k - 1]), q = pt(areas.seq[k]); if (p[0] === q[0] && p[1] === q[1]) continue;
+    const c = bend(p, q, k); legs.push(`M${p[0]},${p[1]} Q${c[0].toFixed(1)},${c[1].toFixed(1)} ${q[0]},${q[1]}`);
+  }
+  const order = areas.list.map((a) => areas.seq.findIndex((x) => x.name === a.name)).map((i, j) => [i, j]).sort((a, b) => a[0] - b[0]);
+  const first = areas.seq[0].name, last = areas.seq[areas.seq.length - 1].name;
+  return `<svg viewBox="0 0 ${W} ${H}" class="rcm-svg" role="img" aria-label="${esc(areas.seq.map((a) => a.name).join(' → '))}">
+    <defs><pattern id="rcmDot" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#C9D3E6"/></pattern>
+      ${legs.map((d, k) => `<mask id="rcmM${k}" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><path d="${d}" stroke="#fff" stroke-width="10" fill="none" pathLength="1" class="rcm-draw" style="--k:${k}"/></mask>`).join('')}</defs>
+    <rect width="${W}" height="${H}" rx="18" fill="url(#rcmDot)"/>
+    ${legs.map((d, k) => `<path d="${d}" class="rcm-leg" mask="url(#rcmM${k})"/>`).join('')}
+    ${order.map(([si, li], n) => { const a = areas.list[li]; const [x, y] = pt(a); const up = n % 2 === 0; const anc = x < 60 ? 'start' : x > W - 60 ? 'end' : 'middle';
+      return `<g class="rcm-dot" style="--k:${Math.max(0, si)}"><circle cx="${x}" cy="${y}" r="7" class="${a.name === first ? 'st' : a.name === last ? 'en' : ''}"/>
+        <text x="${anc === 'start' ? x - 6 : anc === 'end' ? x + 6 : x}" y="${up ? y - 14 : y + 24}" text-anchor="${anc}">${esc(a.name)}</text></g>`; }).join('')}
+  </svg>`;
+}
+/** 비행: 탄 편 수, 하늘에 있던 시간(현지 시각 → 시차 맞춤), 거리 */
+function flightStats(t) {
+  let mins = 0, km = 0, n = 0;
+  const u = (at) => Date.parse(String(at).replace(' ', 'T').slice(0, 16) + 'Z');
+  const off = (g, at) => (!g ? null : inKorea(g) ? 540 : t.tz ? tzOffsetMin(t.tz, new Date(u(at))) : Math.round(g.lng / 15) * 60);
+  for (const f of S.flights) {
+    if (!f.depAt || !f.arrAt) continue;
+    const d = f.depGeo?.lat != null && f.arrGeo?.lat != null ? geoKm(f.depGeo, f.arrGeo) : 0;
+    let o1 = off(f.depGeo, f.depAt), o2 = off(f.arrGeo, f.arrAt); if (o1 == null || o2 == null) o1 = o2 = 0;
+    let m = (u(f.arrAt) - o2 * 6e4 - (u(f.depAt) - o1 * 6e4)) / 6e4;
+    if (!(m >= 20 && m <= 20 * 60)) m = d ? (d / 780) * 60 + 30 : 0;
+    if (!m) continue;
+    n++; mins += Math.round(m); km += d;
+  }
+  return { n, mins, km };
+}
+/** 날씨: 맑은 날·비 온 날·제일 더운 날 (작년 날씨로 채운 날은 빼고) */
+function weatherStats(W, days) {
+  let n = 0, sun = 0, rain = 0, hot = null, cold = null;
+  days.forEach((d, k) => {
+    const w = W && W[d]; if (!w || w.kind === 'lastyear') return; n++;
+    const tx = (w.text || '') + ''; const wet = /비|눈|뇌우|소나기/.test(tx) || ['🌧️', '🌨️', '⛈️'].includes(w.emoji) || (w.rain || 0) >= 1;
+    if (wet) rain++; else if (/맑|구름 조금/.test(tx) || ['☀️', '⛅', '🌤️'].includes(w.emoji)) sun++;
+    if (w.max != null && (!hot || w.max > hot.max)) hot = { max: w.max, k };
+    if (w.min != null && (!cold || w.min < cold.min)) cold = { min: w.min, k };
+  });
+  return { n, sun, rain, hot, cold };
+}
+const fmtKm = (m) => (m / 1000).toFixed(1).replace(/\.0$/, '');
+const walkFun = (m) => { const k = m / 1000; return k >= 42.195 ? `마라톤 ${(k / 42.195).toFixed(1)}번 거리` : k >= 2.5 ? `석촌호수 ${Math.floor(k / 2.5)}바퀴` : '가볍게 산책'; };
+
+/** 스토리용 이미지 (1080×1920) 만들고 공유·저장 */
+async function saveStory(t, d, btn) {
+  const label = btn?.textContent; if (btn) { btn.disabled = true; btn.textContent = '이미지 만드는 중…'; }
+  try {
+    const blob = await drawStory(t, d);
+    const file = new File([blob], `shoong-${String(t.name || 'trip').replace(/[\\/:*?"<>|\s]+/g, '_')}.png`, { type: 'image/png' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') throw e; }
+    } else {
+      const url = URL.createObjectURL(blob);
+      const w = document.createElement('div'); w.className = 'tiview story-view';
+      w.innerHTML = `<img src="${url}" alt="리캡 이미지"><div class="sv-hint">이미지를 꾹 눌러 저장하세요 <a href="${url}" download="${esc(file.name)}">파일로 받기</a></div>`;
+      w.onclick = (e) => { if (!e.target.closest('a')) { w.remove(); URL.revokeObjectURL(url); } };
+      document.body.appendChild(w);
+    }
+  } catch (e) { console.error(e); toast('이미지를 만들지 못했어요'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+}
+const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+function rrect(x, X, Y, w, h, r) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); }
+async function drawStory(t, d) {
+  const FONT = "'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif";
+  try { await Promise.race([Promise.all([document.fonts.load(`700 60px ${FONT}`), document.fonts.load(`500 30px ${FONT}`)]), new Promise((r) => setTimeout(r, 1500))]); } catch { /* 기본 글꼴 */ }
+  const W = 1080, H = 1920; const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  const F = (w, sz) => `${w} ${sz}px ${FONT}`;
+  const fit = (txt, w, sz, min, weight = 700) => { let z = sz; x.font = F(weight, z); while (z > min && x.measureText(txt).width > w) { z -= 2; x.font = F(weight, z); } return z; };
+  // 바탕
+  const g = x.createLinearGradient(0, 0, W * 0.5, H); g.addColorStop(0, '#DCE6FF'); g.addColorStop(0.5, '#FFF3D1'); g.addColorStop(1, '#F2F4F6');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  const rg = x.createRadialGradient(W * 0.82, 240, 0, W * 0.82, 240, 560); rg.addColorStop(0, 'rgba(255,255,255,.9)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = rg; x.fillRect(0, 0, W, H);
+  const L = 90; x.textBaseline = 'alphabetic';
+  // 제목
+  x.fillStyle = '#2E5BFF'; x.font = F(700, 34); x.fillText(String(t.city || 'TRIP').toUpperCase().split('').join(' '), L, 190);
+  x.fillStyle = '#191F28'; fit(t.name || '여행', W - 2 * L, 96, 56, 700); x.fillText(t.name || '여행', L, 300);
+  x.fillStyle = '#4E5968'; x.font = F(500, 38);
+  x.fillText([t.start ? md(t.start) + (t.end && t.end !== t.start ? ' – ' + md(t.end) : '') : '', d.nights].filter(Boolean).join(' · '), L, 370);
+  // 지도 카드
+  const MX = L - 20, MY = 440, MW = W - 2 * (L - 20), MH = 660;
+  x.save(); x.shadowColor = 'rgba(30,50,120,.10)'; x.shadowBlur = 40; x.shadowOffsetY = 12; rrect(x, MX, MY, MW, MH, 48); x.fillStyle = 'rgba(255,255,255,.92)'; x.fill(); x.restore();
+  x.fillStyle = '#C9D3E6'; for (let yy = MY + 40; yy < MY + MH - 120; yy += 34) for (let xx = MX + 40; xx < MX + MW - 30; xx += 34) { x.beginPath(); x.arc(xx, yy, 2, 0, 7); x.fill(); }
+  const seq = d.areas.seq;
+  if (seq.length > 1) {
+    const P = projector(d.areas.list, MW, MH - 150, 130, 80); const pt = (a) => { const [a1, b1] = P(a); return [a1 + MX, b1 + MY + 10]; };
+    x.strokeStyle = '#2E5BFF'; x.lineWidth = 7; x.lineCap = 'round'; x.setLineDash([2, 20]);
+    for (let k = 1; k < seq.length; k++) { const p = pt(seq[k - 1]), q = pt(seq[k]); if (p[0] === q[0] && p[1] === q[1]) continue; const cc = bend(p, q, k); x.beginPath(); x.moveTo(...p); x.quadraticCurveTo(...cc, ...q); x.stroke(); }
+    x.setLineDash([]);
+    const first = seq[0].name, last = seq[seq.length - 1].name;
+    d.areas.list.forEach((a, n) => {
+      const [px, py] = pt(a); x.beginPath(); x.arc(px, py, 17, 0, 7); x.fillStyle = a.name === first ? '#2E5BFF' : a.name === last ? '#FFD66B' : '#fff'; x.fill(); x.lineWidth = 7; x.strokeStyle = '#2E5BFF'; x.stroke();
+      x.font = F(700, 40); x.textAlign = px < MX + 160 ? 'left' : px > MX + MW - 160 ? 'right' : 'center';
+      const ty = n % 2 === 0 ? py - 38 : py + 66; const tx = x.textAlign === 'left' ? px - 14 : x.textAlign === 'right' ? px + 14 : px;
+      x.lineWidth = 10; x.strokeStyle = 'rgba(255,255,255,.95)'; x.strokeText(a.name, tx, ty); x.fillStyle = '#191F28'; x.fillText(a.name, tx, ty);
+    });
+    x.textAlign = 'left';
+  } else {
+    x.textAlign = 'center'; x.font = F(400, 150); x.fillText('📍', W / 2, MY + 330); x.fillStyle = '#191F28'; fit(t.city || t.name || '', MW - 80, 64, 40); x.fillText(t.city || t.name || '', W / 2, MY + 440); x.textAlign = 'left';
+  }
+  const rt = seq.length > 1 ? seq.map((a) => a.name).join('  →  ') : '';
+  if (rt) { x.fillStyle = '#2E5BFF'; x.textAlign = 'center'; fit(rt, MW - 80, 40, 24, 700); x.fillText(rt, W / 2, MY + MH - 58); x.textAlign = 'left'; }
+  // 숫자 3개
+  const tiles = [['📍', `${d.places}곳`, '다녀온 곳']];
+  if (d.walkM) tiles.push(['🚶', `${fmtKm(d.walkM)}km`, '걸은 거리']);
+  if (d.fst.n) tiles.push(['✈️', fmtDur(d.fst.mins * 60), '하늘 위에서']);
+  if (tiles.length < 3) tiles.push(['🍜', `${d.meals}끼`, '맛집']);
+  const TY = 1150, TW = (W - 2 * (L - 20) - 2 * 24) / 3, TH = 230;
+  tiles.slice(0, 3).forEach(([e, val, lb], k) => {
+    const tx = L - 20 + k * (TW + 24); rrect(x, tx, TY, TW, TH, 36); x.fillStyle = 'rgba(255,255,255,.85)'; x.fill();
+    x.textAlign = 'center'; x.font = F(400, 54); x.fillText(e, tx + TW / 2, TY + 74);
+    x.fillStyle = '#191F28'; fit(val, TW - 30, 56, 30, 800); x.fillText(val, tx + TW / 2, TY + 150);
+    x.fillStyle = '#6B7684'; x.font = F(500, 28); x.fillText(lb, tx + TW / 2, TY + 198); x.textAlign = 'left';
+  });
+  // 사진 (폴라로이드)
+  const imgs = (await Promise.all((d.pics || []).map((src) => loadImg(src).catch(() => null)))).filter(Boolean);
+  if (imgs.length) {
+    const PW = 250, PH = 284, gap = imgs.length === 1 ? 0 : (W - 2 * L - PW * imgs.length) / (imgs.length - 1);
+    const startX = imgs.length === 1 ? (W - PW) / 2 : L;
+    imgs.forEach((im, k) => {
+      const px = startX + k * (PW + gap), py = 1420 + (k % 2) * 22; const rot = [-4, 3, -2][k] * Math.PI / 180;
+      x.save(); x.translate(px + PW / 2, py + PH / 2); x.rotate(rot); x.shadowColor = 'rgba(0,0,0,.16)'; x.shadowBlur = 24; x.shadowOffsetY = 8;
+      x.fillStyle = '#fff'; x.fillRect(-PW / 2, -PH / 2, PW, PH); x.shadowColor = 'transparent';
+      const s2 = PW - 28; const r = Math.max(s2 / im.width, s2 / im.height); const sw = s2 / r, sh = s2 / r;
+      x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, -PW / 2 + 14, -PH / 2 + 14, s2, s2); x.restore();
+    });
+  } else {
+    x.fillStyle = '#4E5968'; x.textAlign = 'center'; x.font = F(500, 44); x.fillText('수고했어요, 또 같이 떠나요 ✈︎', W / 2, 1560); x.textAlign = 'left';
+  }
+  // 로고
+  try {
+    const svg = LOGO_SVG.replace('<svg ', '<svg width="3216" height="942" ').replace(/fill="#fff"/g, 'fill="#2E5BFF"').replace('#D5DEFF', '#9DB2FF');
+    const lg = await loadImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)); const lw = 280, lh = (lw * 942) / 3216;
+    x.drawImage(lg, (W - lw) / 2, 1850 - lh, lw, lh);
+  } catch { x.fillStyle = '#2E5BFF'; x.textAlign = 'center'; x.font = F(700, 60); x.fillText('shoong', W / 2, 1840); }
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('blob'))), 'image/png'));
+}
 /** 리캡 움직임: 스크롤하면 하나씩 떠오르고, 숫자는 0부터 올라감 */
 function animateRecap(v) {
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { v.querySelectorAll('.rc-a').forEach((x) => x.classList.add('in')); return; }
   const count = (el) => {
-    const to = Number(el.dataset.cnt) || 0; if (!to) return; const suf = el.dataset.suf || ''; const isWon = el.dataset.won;
+    const to = Number(el.dataset.cnt) || 0; if (!to) return; const dec = el.dataset.dec; const suf = el.dataset.suf || ''; const isWon = el.dataset.won;
     const t0 = performance.now(); const dur = isWon ? 1400 : 900;
-    const step = (now) => { const p = Math.min(1, (now - t0) / dur); const e = 1 - Math.pow(1 - p, 3); const n = Math.round(to * e);
+    const step = (now) => { const p = Math.min(1, (now - t0) / dur); const e = 1 - Math.pow(1 - p, 3); const n = dec ? (to * e).toFixed(1) : Math.round(to * e);
       el.textContent = isWon ? won(n) : n + suf; if (p < 1) requestAnimationFrame(step); };
     requestAnimationFrame(step);
   };
@@ -1345,8 +1591,8 @@ async function drawNotes(t, box) {
   const delBtn = (n) => (n.by === S.user.uid ? `<button class="nt-del" data-rw="del" data-id="${esc(n.id)}">✕</button>` : '');
   box.innerHTML = `
     <h3 class="rc-h">✍️ 여행 후기</h3>
-    ${reviews.length ? `<div class="rv-list">${reviews.map((n) => `<div class="rv">${delBtn(n)}<div class="rv-mood">${esc(n.mood || '🥰')}</div>
-      <div style="min-width:0"><div class="rv-who">${nameAvatar(t, noteName(t, n), 20)}<b>${esc(noteName(t, n))}</b></div><p>${esc(n.text)}</p></div></div>`).join('')}</div>`
+    ${reviews.length ? `<div class="rv-board">${reviews.map((n, k) => `<div class="rvp" style="--bg:${NOTE_BG[(k + 0) % NOTE_BG.length]};--rot:${[-2.2, 1.6, -0.8, 2.4, -1.6][k % 5]}deg;--k:${k}">${delBtn(n)}
+      <div class="rvp-mood">${esc(n.mood || '🥰')}</div><p>${esc(n.text)}</p><div class="rvp-who">${nameAvatar(t, noteName(t, n), 18)}${esc(noteName(t, n))}</div></div>`).join('')}</div>`
       : '<div class="rc-empty">아직 후기가 없어요. 첫 후기를 남겨 보세요 ✨</div>'}
     ${others.length ? `<h3 class="rc-h">💌 서로에게 한마디</h3>
       ${letters.length ? `<div class="lt-list">${letters.map((n, k) => `<div class="lt ${n.to === mine ? 'forme' : ''}" style="--bg:${NOTE_BG[k % NOTE_BG.length]};--rot:${k % 2 ? 1.6 : -1.4}deg">${delBtn(n)}
@@ -1652,7 +1898,7 @@ function itemRow(t, i, no, list) {
     ${i.done ? starsHtml(t, i) : ''}<div class="irow"><button class="itime tbtn ${i.time ? '' : 'empty'}" data-act="settime" data-id="${esc(i.id)}" aria-label="시간 변경">${esc(i.time || '시간')}</button>
       <div style="flex:1;min-width:0"><div class="ititle">${no ? `<span class="pinno" style="background:${c[1]}">${no}</span>` : ''}${esc(i.title)}</div>
       ${i.memo ? `<div class="imemo">${esc(i.memo)}</div>` : ''}
-      ${itemSpendHtml(t, i)}
+      ${itemSpendHtml(t, i)}${itemPhotosHtml(t, i)}
       <div class="iactions"><span class="tag" style="--bg:${c[0]};--fg:${c[1]}">${esc(catLabel(i.cat || '기타'))}</span>
         ${i.cat !== '이동' ? `<a class="lnk map" href="${esc(placeUrl(t, i))}" target="_blank" rel="noopener">구글맵</a>` : ''}
         ${i.cat !== '이동' && inChina(i) ? `<a class="lnk map" href="${esc(amapPlaceUrl(i, t.city))}" target="_blank" rel="noopener">고덕</a>` : ''}
@@ -2364,6 +2610,8 @@ function itemForm(t, item) {
     <label class="f"><span>분류</span>${pills('cat', Object.keys(ICATS), item.cat || '관광')}</label>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="예약번호, 추천 메뉴, 영업시간…">${esc(item.memo)}</textarea></label>
     <label class="f"><span>링크 (선택)</span><input class="inp" name="link" value="${esc(item.link)}" placeholder="https://"></label>
+    <div class="f"><span class="flbl">📷 사진 (최대 4장 · 리캡에 들어가요)</span><div class="qredit" id="itPics"></div>
+      <label class="btn ghost small" style="margin-top:8px;display:inline-flex">📷 사진 넣기<input type="file" accept="image/*" multiple hidden id="itFile"></label></div>
     <div class="spendbox"><span class="flbl">💸 여기서 쓴 돈 (가계부에 자동 기록)</span>
       <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || spCurs[0])}</div>
       <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
@@ -2373,6 +2621,7 @@ function itemForm(t, item) {
     ${isNew ? '' : '<button type="button" class="towish" data-x="towish">💛 찜으로 옮기기 <span>날짜 미정으로 빼두기</span></button>'}
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
     wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh);
+    const pe = photoEditor(t, sh, '#itPics', '#itFile', item.photos);
     // '누구랑?'을 바꾸면 돈 나눌 사람도 같이 맞춤 (지출이 아직 없을 때)
     sh.querySelector('[data-pills=who]')?.addEventListener('click', () => setTimeout(() => {
       if (linked) return; const w = pillVal(sh, 'who');
@@ -2404,6 +2653,7 @@ function itemForm(t, item) {
       closeSheet(); S.day = data.date;
       {
         const b = writeBatch(db);
+        data.photos = pe.apply(b, { itemId });
         // 쓴 돈 → 가계부 지출로 연결 (있으면 수정, 비우면 삭제)
         let expenseId = item.expenseId || null;
         if (spend > 0) {
@@ -2422,9 +2672,40 @@ function itemForm(t, item) {
       }
     };
     sh.querySelector('[data-x=towish]')?.addEventListener('click', () => itemToWish(t, item));
-    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${item.title}' 일정을 삭제할까요?${item.expenseId ? ' 연결된 지출도 같이 지워져요.' : ''}`, '삭제', () => { const b = writeBatch(db); if (item.expenseId) b.delete(doc(db, 'trips', t.id, 'expenses', item.expenseId)); b.delete(doc(db, 'trips', t.id, 'items', item.id)); commit(b); }));
+    sh.querySelector('[data-x=del]')?.addEventListener('click', () => askConfirm(`'${item.title}' 일정을 삭제할까요?${item.expenseId ? ' 연결된 지출도 같이 지워져요.' : ''}`, '삭제', () => { const b = writeBatch(db); if (item.expenseId) b.delete(doc(db, 'trips', t.id, 'expenses', item.expenseId)); delPhotos(b, t, item); b.delete(doc(db, 'trips', t.id, 'items', item.id)); commit(b); }));
   });
 }
+
+/** 사진 넣기·빼기 칸 (files 컬렉션에 base64로 저장, 문서에는 id 목록만). apply(b, 연결정보) → 저장할 id 목록 */
+function photoEditor(t, sh, boxSel, fileSel, ids = [], max = 4) {
+  const photos = (ids || []).map((id) => ({ id, data: qrCache.get(id) && qrCache.get(id) !== 'loading' ? qrCache.get(id) : null }));
+  const removed = [];
+  const draw = () => {
+    const box = sh.querySelector(boxSel); if (!box) return;
+    box.innerHTML = photos.map((q, k) => `<div class="qrthumb" data-k="${k}">${q.data ? `<img src="${q.data}" alt="">` : '<span>사진</span>'}<button type="button" class="qrdel" data-k="${k}" aria-label="삭제">×</button></div>`).join('');
+    box.querySelectorAll('img').forEach((img) => img.onclick = () => { const w = document.createElement('div'); w.className = 'tiview'; w.innerHTML = `<img src="${img.src}" alt="">`; w.onclick = () => w.remove(); document.body.appendChild(w); });
+    box.querySelectorAll('.qrdel').forEach((b) => b.onclick = () => {
+      if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = '삭제?'; return; }
+      const [q] = photos.splice(Number(b.dataset.k), 1); if (q && !q.isNew) removed.push(q.id); draw();
+    });
+  };
+  draw();
+  photos.filter((q) => !q.data).forEach((q) => loadQr(t, q.id).then((d) => { q.data = d; draw(); }));
+  sh.querySelector(fileSel)?.addEventListener('change', async (ev) => {
+    const files = [...ev.target.files].slice(0, max - photos.length);
+    if (!files.length) { ev.target.value = ''; return toast(`사진은 ${max}장까지 넣을 수 있어요`); }
+    for (const f of files) { try { photos.push({ id: uid(), data: await compressImage(f), isNew: true }); } catch { toast('사진을 읽지 못했어요'); } }
+    ev.target.value = ''; draw();
+  });
+  return {
+    apply(b, link) {
+      for (const q of photos.filter((x) => x.isNew)) { b.set(doc(db, 'trips', t.id, 'files', q.id), { ...link, data: q.data, createdAt: Date.now(), by: S.user.uid }); qrCache.set(q.id, q.data); }
+      for (const id of removed) { b.delete(doc(db, 'trips', t.id, 'files', id)); qrCache.delete(id); }
+      return photos.map((q) => q.id);
+    },
+  };
+}
+const delPhotos = (b, t, item) => (item.photos || []).forEach((id) => { b.delete(doc(db, 'trips', t.id, 'files', id)); qrCache.delete(id); });
 
 // 일정 → 찜: 찜에서 왔으면 그 찜을 '추가 전'으로 되돌리고, 아니면 새 찜을 만든 뒤 일정은 지움
 function itemToWish(t, item) {
@@ -2446,6 +2727,7 @@ function itemToWish(t, item) {
         });
       }
       if (exp) b.update(doc(db, 'trips', t.id, 'expenses', exp.id), { itemId: null });
+      delPhotos(b, t, item);
       b.delete(doc(db, 'trips', t.id, 'items', item.id));
       commit(b);
     }
@@ -3240,6 +3522,7 @@ document.addEventListener('click', (ev) => {
     case 'editWish': wishForm(t, S.places.find((x) => x.id === id)); break;
     case 'toPlan': toPlanSheet(t, S.places.find((x) => x.id === id)); break;
     case 'focusWish': { const p = S.places.find((x) => x.id === id); if (p && mapCtl && ll(p)) { mapCtl.focus({ lat: p.lat, lng: p.lng }); window.scrollTo({ top: 0, behavior: 'smooth' }); } break; }
+    case 'photoView': ev.stopPropagation(); viewPhoto(qrCache.get(id) !== 'loading' ? qrCache.get(id) : null); break;
     case 'qrview': ev.stopPropagation(); openQrViewer(el.dataset.flight, Number(el.dataset.idx || 0)); break;
   }
 }, true);
