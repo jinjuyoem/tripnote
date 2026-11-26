@@ -25,7 +25,7 @@ const S = {
   access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
-  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), fresh: {}, share: null,
+  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', forkView: (() => { try { return localStorage.getItem('forkView') === 'list' ? 'list' : 'side'; } catch { return 'side'; } })(), sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), fresh: {}, share: null,
 };
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
@@ -1081,11 +1081,17 @@ function forkHtml(t, b, pinNo) {
     return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><span>${no ? `<i class="mno">${no}</i>` : ''}${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}</div>`;
   };
   const nextTitle = next ? (next.kind === 'item' ? (next.i.kind === 'memo' ? '' : next.i.title) : '') : '';
-  return `<div class="fork${cont ? ' cont' : ''}${more ? ' more' : ''}">
+  const list = S.forkView === 'list';
+  const mine = myName(t);
+  // 내 칸이 먼저
+  const ls = [...lanes].sort((a, b) => (b.names.includes(mine) ? 1 : 0) - (a.names.includes(mine) ? 1 : 0));
+  const span = (rs) => { const ts = rs.map((r) => r.time).filter(Boolean); return ts.length ? (ts.length > 1 ? `${ts[0]} – ${ts[ts.length - 1]}` : ts[0]) : ''; };
+  const cols = list ? '' : ` style="grid-template-columns:repeat(${ls.length},minmax(${ls.length > 2 ? '136px' : '0'},1fr))"`;
+  return `<div class="fork${cont ? ' cont' : ''}${more ? ' more' : ''}${list ? ' list' : ''}">
     <div class="forkhead">${cont ? '↙↘ 이어서' : '↙↘ 따로 다니는 시간'}${times.length ? ` ${esc(times[0])}${times.length > 1 ? ' – ' + esc(times[times.length - 1]) : ''}` : ''}</div>
-    ${cont ? '' : viewAsBtns(t, null)}
-    <div class="lanes" style="grid-template-columns:repeat(${lanes.length},minmax(0,1fr))">
-      ${lanes.map((l) => `<div class="lane"><h4><span class="lav">${l.names.map((p) => nameAvatar(t, p, 22)).join('')}</span>${esc(l.names.join('·'))}</h4>
+    ${cont ? '' : `<div class="vabtns"><span class="fvseg"><button class="${list ? '' : 'on'}" data-act="forkView" data-v="side">▥ 나란히</button><button class="${list ? 'on' : ''}" data-act="forkView" data-v="list">☰ 목록</button></span>${peopleOf(t).map((p) => `<button class="vab" data-act="viewAs" data-v="${esc(p)}">${nameAvatar(t, p, 18)}${esc(p)} 일정</button>`).join('')}</div>`}
+    <div class="lanes${ls.length > 2 && !list ? ' wide' : ''}"${cols}>
+      ${ls.map((l) => `<div class="lane${l.names.includes(mine) ? ' me' : ''}"><h4><span class="lav">${l.names.map((p) => nameAvatar(t, p, 22)).join('')}</span><span class="lnm">${esc(l.names.join('·'))}</span>${list && span(l.rows) ? `<i class="lspan">${esc(span(l.rows))}</i>` : ''}</h4>
         ${l.rows.length ? l.rows.map((r) => { const s = l.into.get(rowIdOf(r)); return (s ? segRow(t, s[0], s[1], 'sm') : '') + mini(r); }).join('') : '<div class="lane-empty">자유 시간</div>'}
         ${l.toNext ? segRow(t, l.toNext[0], l.toNext[1], 'sm', `→ ${l.toNext[1].title}`) : ''}</div>`).join('')}
     </div>
@@ -3482,6 +3488,15 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'ordering': S.ordering = !S.ordering; render(); break;
+    case 'forkView': {
+      // 누른 갈래가 화면 같은 자리에 오도록
+      const forks = [...document.querySelectorAll('.fork')]; const fork = el.closest('.fork');
+      const idx = forks.indexOf(fork); const top0 = fork ? fork.getBoundingClientRect().top : null;
+      S.forkView = el.dataset.v === 'list' ? 'list' : 'side'; lsSet('forkView', S.forkView); render();
+      const nf = idx >= 0 ? document.querySelectorAll('.fork')[idx] : null;
+      if (nf && top0 != null) window.scrollTo(0, scrollY + nf.getBoundingClientRect().top - top0);
+      break;
+    }
     case 'viewAs': {
       // 화면 위치 유지: 누른 갈래 자리에 그 사람 일정이 오도록
       const fork = el.closest('.fork'); const y0 = scrollY;

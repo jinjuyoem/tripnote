@@ -1242,3 +1242,23 @@ label.f[hidden]{display:none}
 .sv-hint{color:#fff;font-size:13px;text-align:center}
 .sv-hint a{color:#FFD66B;margin-left:8px}
 @media (prefers-reduced-motion: reduce){.rcm-dot{opacity:1;transform:none}.rcm-draw{stroke-dashoffset:0}.go .rvp{animation:none!important}}
+/* 따로 다니는 시간: 나란히 / 목록 전환 (11-27) */
+.fvseg{display:inline-flex;flex:none;background:#E9ECEF;border-radius:99px;padding:2px;gap:2px}
+.fvseg button{font:inherit;font-size:11px;font-weight:600;border:0;background:transparent;color:var(--ink2);border-radius:99px;padding:4px 9px;cursor:pointer}
+.fvseg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.lane.me{background:rgba(46,91,255,.05);border-color:rgba(46,91,255,.35)}
+.lane h4 .lnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lane.me h4 .lnm::after{content:" · 나";color:#2E5BFF;font-weight:500}
+.lanes.wide{overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;margin-right:-16px;padding-right:16px}
+.lanes.wide::-webkit-scrollbar{display:none}
+.lanes.wide .lane{scroll-snap-align:start}
+/* 목록 보기: 사람별 칸을 위아래로, 일정은 한 줄씩 */
+.fork.list .lanes{grid-template-columns:1fr;gap:8px}
+.fork.list .lane{padding:10px 12px}
+.fork.list .lane h4{margin-bottom:8px}
+.fork.list .lspan{margin-left:auto;font-style:normal;font-size:11px;font-weight:500;color:var(--ink2);font-variant-numeric:tabular-nums;flex:none}
+.fork.list .mini{display:grid;grid-template-columns:52px 1fr;column-gap:8px;align-items:baseline;padding:9px 10px}
+.fork.list .mini > span{grid-column:1}
+.fork.list .mini > b{grid-column:2;font-size:13px}
+.fork.list .mini > :not(span):not(b){grid-column:2}
+.fork.list .lane .seg.sm{padding-left:60px}
