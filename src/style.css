@@ -1283,3 +1283,7 @@ label.f[hidden]{display:none}
 .xdonelist .small{margin:0 2px 6px}
 button.xfer.ok{width:100%;border:0;text-align:left;background:#F2F4F6;color:#8B95A1;font:inherit;font-weight:500;cursor:pointer}
 button.xfer.ok .arrow{color:inherit}
+
+.setmode{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.setmode button{border:0;border-radius:99px;background:#E9ECF1;color:#4E5968;font:inherit;font-size:12px;font-weight:500;padding:6px 12px;cursor:pointer}
+.setmode button.on{background:#191F28;color:#fff}

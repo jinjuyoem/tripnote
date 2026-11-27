@@ -25,7 +25,7 @@ const S = {
   access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
-  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', forkView: (() => { try { return localStorage.getItem('forkView') === 'list' ? 'list' : 'side'; } catch { return 'side'; } })(), sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), fresh: {}, share: null,
+  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', forkView: (() => { try { return localStorage.getItem('forkView') === 'list' ? 'list' : 'side'; } catch { return 'side'; } })(), sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), settleMode: (() => { try { return localStorage.getItem('settleMode') || null; } catch { return null; } })(), fresh: {}, share: null,
 };
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
@@ -2369,14 +2369,13 @@ function dragExp(card, clientY, isTouch) {
 function locAmt(t, e) {
   return e.cur === t.currency ? (e.refund ? -1 : 1) * (Number(e.amount) || 0) : toKRW(t, e) / Number(t.rate);
 }
-function settle(t, local = false) {
-  const amtOf = local ? (e) => locAmt(t, e) : (e) => toKRW(t, e);
-  const eps = local ? 0.005 : 0.5;
+/** 정산 계산. mode: 'krw'(원화로 환산) | 'local'(여행 통화로 환산) | 'mixed'(쓴 화폐 그대로, 통화별로 따로) */
+function settleCore(t, exps, amtOf, eps, pbAmt) {
   // 초대로 참여한 사람 + (예전에 이름으로 넣었던 사람이 지출에 남아 있으면 같이)
   const now = peopleOf(t);
   const people = [...new Set([...now, ...S.expenses.flatMap((e) => [e.payer, ...(e.split || [])])].filter(Boolean))]; const bal = {}, paid = {}, owe = {}, rows = {};
   people.forEach((m) => { bal[m] = 0; paid[m] = 0; owe[m] = 0; rows[m] = []; });
-  S.expenses.forEach((e) => {
+  exps.forEach((e) => {
     const amt = amtOf(e);
     // 나눌 사람이 비어 있으면 결제한 사람만 돈을 받고 아무도 안 내는 상태가 돼서 합이 안 맞음 → 모두로
     let split = (e.split || []).filter((m) => m in bal); if (!split.length) split = now.filter((m) => m in bal);
@@ -2386,8 +2385,8 @@ function settle(t, local = false) {
     people.forEach((m) => { const p = e.payer === m ? amt : 0, o = split.includes(m) ? sh : 0; if (p || o) rows[m].push({ e, p, o }); });
   });
   // 이미 보낸 돈(정산 완료 체크) — 보낸 사람은 갚은 만큼 +, 받은 사람은 −
-  const done = (t.paidBacks || []).filter((pb) => pb.from in bal && pb.to in bal);
-  done.forEach((pb) => { const x = Number(local ? pb.loc : pb.krw) || 0; bal[pb.from] += x; bal[pb.to] -= x; });
+  const done = (t.paidBacks || []).filter((pb) => pb.from in bal && pb.to in bal).map((pb) => ({ pb, x: Number(pbAmt(pb)) || 0 })).filter((d) => d.x);
+  done.forEach(({ pb, x }) => { bal[pb.from] += x; bal[pb.to] -= x; });
   const cred = people.filter((m) => bal[m] > eps).map((m) => [m, bal[m]]).sort((a, b) => b[1] - a[1]);
   const debt = people.filter((m) => bal[m] < -eps).map((m) => [m, -bal[m]]).sort((a, b) => b[1] - a[1]);
   const xs = []; let i = 0, j = 0;
@@ -2395,51 +2394,110 @@ function settle(t, local = false) {
     const x = Math.min(debt[i][1], cred[j][1]); xs.push([debt[i][0], cred[j][0], x]);
     debt[i][1] -= x; cred[j][1] -= x; if (debt[i][1] < eps) i++; if (cred[j][1] < eps) j++;
   }
-  const odd = people.filter((m) => !now.includes(m));
-  return { bal, paid, owe, xs, rows, odd, eps, done };
+  return { bal, paid, owe, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
 }
-/** 정산 '보냈어요' — 원화·현지 통화 둘 다 그때 정산 금액으로 저장해서 어느 쪽으로 봐도 0이 되게 */
-function xferDone(a, b) {
+const hasLocalCur = (t) => !!(t.currency && t.currency !== 'KRW' && Number(t.rate) > 0);
+const curOf = (e) => e.cur || 'KRW';
+/** 통화 하나를 원화로: 여행 통화면 기본 환율, 다른 외화면 그 통화 지출에 넣은 환율 */
+function curRate(t, cur) {
+  if (cur === 'KRW') return 1;
+  if (cur === t.currency && Number(t.rate) > 0) return Number(t.rate);
+  const e = S.expenses.find((x) => curOf(x) === cur && Number(x.rate) > 0); return e ? Number(e.rate) : null;
+}
+const fmCur = (cur, x) => (cur === 'KRW' ? won(x) : `${num(x)} ${curName(cur)}`);
+function settle(t, mode = 'krw') {
+  if (mode === true) mode = 'local'; if (mode === false) mode = 'krw';
+  if (mode === 'local' && !hasLocalCur(t)) mode = 'krw';
+  if (mode !== 'mixed') {
+    const local = mode === 'local';
+    return settleCore(t, S.expenses, local ? (e) => locAmt(t, e) : (e) => toKRW(t, e), local ? 0.005 : 0.5, (pb) => (local ? pb.loc ?? (pb.krw / Number(t.rate)) : pb.krw));
+  }
+  // 쓴 화폐 그대로: 통화마다 따로 정산. 원화·현지 통화 보기에서 체크한 '보낸 돈'은 여행 통화(없으면 원화)로 반영
+  const home = hasLocalCur(t) ? t.currency : 'KRW';
+  const curs = [...new Set([...S.expenses.map(curOf), ...(t.paidBacks || []).map((pb) => pb.cur || home)])];
+  curs.sort((a, b) => (a === home ? -1 : b === home ? 1 : a === 'KRW' ? -1 : b === 'KRW' ? 1 : a.localeCompare(b)));
+  const by = {};
+  curs.forEach((cur) => {
+    by[cur] = settleCore(t, S.expenses.filter((e) => curOf(e) === cur), (e) => (e.refund ? -1 : 1) * (Number(e.amount) || 0), cur === 'KRW' ? 0.5 : 0.005,
+      (pb) => (pb.cur ? (pb.cur === cur ? pb.amt : 0) : cur !== home ? 0 : home === 'KRW' ? pb.krw : pb.loc ?? pb.krw / Number(t.rate)));
+  });
+  return { mixed: true, curs, by, people: by[curs[0]]?.people || peopleOf(t), odd: by[curs[0]]?.odd || [] };
+}
+/** 정산 '보냈어요' — 원화·현지 통화(·쓴 통화) 금액을 같이 저장 */
+function xferDone(a, b, cur) {
   const t = trip(); if (!t) return;
-  const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
-  const find = (r) => r.xs.find(([x, y]) => x === a && y === b)?.[2];
-  let krw = find(settle(t, false)), loc = hasLocal ? find(settle(t, true)) : null;
-  if (krw == null && loc == null) return;
-  if (krw == null) krw = loc * Number(t.rate);
-  if (hasLocal && loc == null) loc = krw / Number(t.rate);
-  const pb = { id: uid(), from: a, to: b, krw: Math.round(krw * 100) / 100, loc: loc == null ? null : Math.round(loc * 100) / 100, at: Date.now(), by: S.user?.uid || null };
-  savePaidBacks(t, [...(t.paidBacks || []), pb]);
+  const hasLocal = hasLocalCur(t);
+  const find = (r) => r?.xs.find(([x, y]) => x === a && y === b)?.[2];
+  let pb;
+  if (cur) {
+    const amt = find(settle(t, 'mixed').by[cur]); if (amt == null) return;
+    const r = curRate(t, cur); const krw = r ? amt * r : null;
+    pb = { cur, amt: Math.round(amt * 100) / 100, krw: krw == null ? null : Math.round(krw * 100) / 100, loc: hasLocal && krw != null ? Math.round((cur === t.currency ? amt : krw / Number(t.rate)) * 100) / 100 : null };
+  } else {
+    let krw = find(settle(t, 'krw')), loc = hasLocal ? find(settle(t, 'local')) : null;
+    if (krw == null && loc == null) return;
+    if (krw == null) krw = loc * Number(t.rate);
+    if (hasLocal && loc == null) loc = krw / Number(t.rate);
+    pb = { krw: Math.round(krw * 100) / 100, loc: loc == null ? null : Math.round(loc * 100) / 100 };
+  }
+  savePaidBacks(t, [...(t.paidBacks || []), { id: uid(), from: a, to: b, ...pb, at: Date.now(), by: S.user?.uid || null }]);
   toast(`${a} → ${b} 보냈어요`);
 }
 function savePaidBacks(t, list) {
   t.paidBacks = list; render();
   write(() => updateDoc(doc(db, 'trips', t.id), { paidBacks: list }));
 }
+function settleModeOf(t) {
+  const hasLocal = hasLocalCur(t); const multiCur = new Set(S.expenses.map(curOf)).size > 1;
+  const modes = ['krw', ...(hasLocal ? ['local'] : []), ...(multiCur ? ['mixed'] : [])];
+  const m = S.settleMode || (S.sumLocal && hasLocal ? 'local' : 'krw');
+  return { modes, mode: modes.includes(m) ? m : 'krw' };
+}
 function viewSettle(t) {
   if (peopleOf(t).length < 2) return '<div class="empty"><b>동행인을 초대해 주세요</b>오른쪽 위 설정에서 초대 링크를 보내면, 참여한 사람끼리 자동으로 정산돼요.</div>';
-  const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
-  const local = hasLocal && S.sumLocal;
-  const { bal, paid, owe, xs, rows, odd, eps, done } = settle(t, local); const people = Object.keys(bal);
+  const { modes, mode } = settleModeOf(t);
   const cn = curName(t.currency);
+  const label = { krw: '원화', local: cn, mixed: '쓴 화폐 그대로' };
+  const seg = modes.length > 1 ? `<div class="setmode">${modes.map((m) => `<button class="${m === mode ? 'on' : ''}" data-act="settleMode" data-v="${m}">${esc(label[m])}</button>`).join('')}</div>` : '';
+  const doneBtn = (pb, fm) => `<button class="xfer ok" data-act="xferUndo" data-id="${esc(pb.id)}">✓ ${esc(pb.from)} <span class="arrow">→</span> ${esc(pb.to)}<span class="m">${fm}${pb.at ? `<small>${esc(md(fmtD(new Date(pb.at))))}</small>` : ''}</span></button>`;
+  const xferRow = (a, b, amt, sub, cur) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${amt}${sub ? `<small>${sub}</small>` : ''}</span><button class="xdone" data-act="xferDone" data-a="${esc(a)}" data-b="${esc(b)}"${cur ? ` data-cur="${esc(cur)}"` : ''}>보냈어요</button></div>`;
+  const oddBox = (odd) => (odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : '');
+  const personBox = (r, fm) => r.people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(r.paid[m])} · 부담 ${fm(r.owe[m])}</div></div>
+      <div class="mono ${r.bal[m] > r.eps ? 'pos' : r.bal[m] < -r.eps ? 'neg' : ''}">${r.bal[m] > r.eps ? '+' : ''}${fm(Math.abs(r.bal[m]) < r.eps ? 0 : r.bal[m])}</div></summary>
+      <div class="balrows">${r.rows[m].map(({ e, p, o }) => `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>부담 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('');
+
+  if (mode === 'mixed') {
+    const R = settle(t, 'mixed');
+    const all = R.curs.flatMap((cur) => R.by[cur].xs.map(([a, b, x]) => ({ a, b, x, cur })));
+    const dones = R.curs.flatMap((cur) => R.by[cur].done.map((d) => ({ ...d, cur })));
+    const text = all.length ? `[${t.name} 정산 · 쓴 화폐 그대로]\n` + all.map(({ a, b, x, cur }) => `${a} → ${b} ${fmCur(cur, x)}`).join('\n') : '';
+    return `${seg}<div class="card"><h3>보낼 돈</h3>
+      ${all.length ? all.map(({ a, b, x, cur }) => xferRow(a, b, fmCur(cur, x), '', cur)).join('')
+        + `<button class="btn ghost block small" data-act="copy" data-text="${esc(text)}" style="margin-top:4px">정산 내역 복사하기</button>`
+      : `<div class="muted small">${dones.length ? '다 보냈어요. 정산 끝!' : '정산할 금액이 없어요. 깔끔!'}</div>`}
+      ${dones.length ? `<div class="xdonelist"><div class="small muted">보낸 돈 · 누르면 취소</div>${dones.map(({ pb, x, cur }) => doneBtn(pb, fmCur(cur, x))).join('')}</div>` : ''}</div>
+    ${oddBox(R.odd)}
+    ${R.curs.map((cur) => `<div class="card"><h3>사람별 내역 · ${esc(cur === 'KRW' ? '원화' : curName(cur))} <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>${personBox(R.by[cur], (x) => fmCur(cur, x))}</div>`).join('')}
+    <p class="small muted" style="padding:0 4px">환율 없이 통화마다 따로 정산해요. 같은 사람끼리 통화별로 따로 보내면 돼요.${(t.paidBacks || []).some((pb) => !pb.cur) ? ` 원화·${esc(cn)} 보기에서 체크한 보낸 돈은 ${esc(hasLocalCur(t) ? cn : '원화')} 쪽에 반영돼요.` : ''}</p>`;
+  }
+
+  const local = mode === 'local';
+  const r = settle(t, mode); const { xs, done } = r;
   const fm = local ? (x) => `${num(x)} ${cn}` : won;
+  const hasLocal = hasLocalCur(t);
   const sub = local ? (x) => `약 ${won(x * Number(t.rate))}` : hasLocal ? (x) => `약 ${num(x / Number(t.rate))} ${cn}` : null;
   const text = xs.length ? `[${t.name} 정산${local ? ` · ${cn}` : ''}]\n` + xs.map(([a, b, x]) => `${a} → ${b} ${fm(x)}`).join('\n') : '';
-  const chip = hasLocal ? `<button class="curchip2" data-act="sumCur">${local ? '원화로 보기' : `${esc(cn)}로 보기`} ⇄</button>` : '';
   // 카드 환율을 따로 넣은 현지 통화 지출 → 원화 정산과 현지 통화 정산 비율이 딱 맞지 않음
   const ownRate = hasLocal ? S.expenses.filter((e) => e.cur === t.currency && Number(e.rate) > 0 && Math.abs(Number(e.rate) - Number(t.rate)) > 1e-9).length : 0;
-  const totPaid = people.reduce((s, m) => s + paid[m], 0);
-  const sgn = (x) => (x > eps ? '+' : '');
-  return `<div class="card"><h3>보낼 돈${chip}</h3>
-    ${xs.length ? xs.map(([a, b, x]) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${fm(x)}${sub ? `<small>${sub(x)}</small>` : ''}</span><button class="xdone" data-act="xferDone" data-a="${esc(a)}" data-b="${esc(b)}" aria-label="보냈어요">보냈어요</button></div>`).join('')
+  return `${seg}<div class="card"><h3>보낼 돈</h3>
+    ${xs.length ? xs.map(([a, b, x]) => xferRow(a, b, fm(x), sub ? sub(x) : '')).join('')
       + `<button class="btn ghost block small" data-act="copy" data-text="${esc(text)}" style="margin-top:4px">정산 내역 복사하기</button>`
     : `<div class="muted small">${done.length ? '다 보냈어요. 정산 끝!' : '정산할 금액이 없어요. 깔끔!'}</div>`}
-    ${done.length ? `<div class="xdonelist"><div class="small muted">보낸 돈 · 누르면 취소</div>${done.map((pb) => `<button class="xfer ok" data-act="xferUndo" data-id="${esc(pb.id)}">✓ ${esc(pb.from)} <span class="arrow">→</span> ${esc(pb.to)}<span class="m">${fm(Number(local ? pb.loc : pb.krw) || 0)}${pb.at ? `<small>${esc(md(fmtD(new Date(pb.at))))}</small>` : ''}</span></button>`).join('')}</div>` : ''}</div>
-  ${odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : ''}
+    ${done.length ? `<div class="xdonelist"><div class="small muted">보낸 돈 · 누르면 취소</div>${done.map(({ pb, x }) => doneBtn(pb, fm(x))).join('')}</div>` : ''}</div>
+  ${oddBox(r.odd)}
   <div class="card"><h3>사람별 내역 <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>
-    ${people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(paid[m])} · 부담 ${fm(owe[m])}</div></div>
-      <div class="mono ${bal[m] > eps ? 'pos' : bal[m] < -eps ? 'neg' : ''}">${sgn(bal[m])}${fm(Math.abs(bal[m]) < eps ? 0 : bal[m])}</div></summary>
-      <div class="balrows">${rows[m].map(({ e, p, o }) => `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>부담 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('')}
-    <div class="small muted" style="margin-top:8px;text-align:right">전체 결제 ${fm(totPaid)} = 전체 부담 ${fm(people.reduce((s, m) => s + owe[m], 0))}</div></div>
+    ${personBox(r, fm)}
+    <div class="small muted" style="margin-top:8px;text-align:right">전체 결제 ${fm(r.people.reduce((s, m) => s + r.paid[m], 0))} = 전체 부담 ${fm(r.people.reduce((s, m) => s + r.owe[m], 0))}</div></div>
   <p class="small muted" style="padding:0 4px">${local
     ? `${esc(cn)}로 쓴 건 적은 금액 그대로, 원화 등 다른 통화는 기본 환율(${esc(rateLabel(t.currency, t.rate))})로 바꿔서 계산해요.`
     : `외화 지출은 지출마다 넣은 환율(없으면 기본 환율)로 원화 환산해서 계산해요.`}${ownRate ? ` 환율을 따로 넣은 지출 ${ownRate}건이 있어서 원화·${esc(cn)} 정산이 정확히 같은 비율은 아니에요.` : ''}</p>`;
@@ -3530,7 +3588,8 @@ document.addEventListener('click', (ev) => {
     case 'newExp': expForm(t, null); break;
     case 'editExp': expForm(t, S.expenses.find((x) => x.id === id)); break;
     case 'copy': copy(el.dataset.text); break;
-    case 'xferDone': xferDone(el.dataset.a, el.dataset.b); break;
+    case 'xferDone': xferDone(el.dataset.a, el.dataset.b, el.dataset.cur); break;
+    case 'settleMode': S.settleMode = el.dataset.v; try { localStorage.setItem('settleMode', S.settleMode); } catch {} render(); break;
     case 'xferUndo': { const t = trip(); const id = el.dataset.id; if (!t) break;
       askConfirm('보낸 돈 표시를 취소할까요?', '취소하기', () => savePaidBacks(t, (t.paidBacks || []).filter((x) => x.id !== id))); break; }
     case 'settime': {
