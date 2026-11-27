@@ -2387,7 +2387,8 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
   });
   // 이미 보낸 돈(정산 완료 체크) — 보낸 사람은 갚은 만큼 +, 받은 사람은 −
   const done = (t.paidBacks || []).filter((pb) => pb.from in bal && pb.to in bal).map((pb) => ({ pb, x: Number(pbAmt(pb)) || 0 })).filter((d) => d.x);
-  done.forEach(({ pb, x }) => { bal[pb.from] += x; bal[pb.to] -= x; addPd(pb.from, pb.to, -x); });
+  const sent = {}, recv = {}; people.forEach((m) => { sent[m] = 0; recv[m] = 0; });
+  done.forEach(({ pb, x }) => { bal[pb.from] += x; bal[pb.to] -= x; addPd(pb.from, pb.to, -x); sent[pb.from] += x; recv[pb.to] += x; rows[pb.from].push({ pb, s: x }); rows[pb.to].push({ pb, r: x }); });
   if (!S.settleMin) {
     // 누가 누구한테 쓴 만큼 그대로 (둘 사이만 서로 상계)
     const xs = [];
@@ -2396,7 +2397,7 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
       if (n > eps) xs.push([a, b, n]); else if (n < -eps) xs.push([b, a, -n]);
     }));
     xs.sort((x, y) => y[2] - x[2]);
-    return { bal, paid, owe, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
+    return { bal, paid, owe, sent, recv, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
   }
   const cred = people.filter((m) => bal[m] > eps).map((m) => [m, bal[m]]).sort((a, b) => b[1] - a[1]);
   const debt = people.filter((m) => bal[m] < -eps).map((m) => [m, -bal[m]]).sort((a, b) => b[1] - a[1]);
@@ -2405,7 +2406,7 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
     const x = Math.min(debt[i][1], cred[j][1]); xs.push([debt[i][0], cred[j][0], x]);
     debt[i][1] -= x; cred[j][1] -= x; if (debt[i][1] < eps) i++; if (cred[j][1] < eps) j++;
   }
-  return { bal, paid, owe, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
+  return { bal, paid, owe, sent, recv, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
 }
 const hasLocalCur = (t) => !!(t.currency && t.currency !== 'KRW' && Number(t.rate) > 0);
 const curOf = (e) => e.cur || 'KRW';
@@ -2473,9 +2474,9 @@ function viewSettle(t) {
   const doneBtn = (pb, fm) => `<button class="xfer ok" data-act="xferUndo" data-id="${esc(pb.id)}">✓ ${esc(pb.from)} <span class="arrow">→</span> ${esc(pb.to)}<span class="m">${fm}${pb.at ? `<small>${esc(md(fmtD(new Date(pb.at))))}</small>` : ''}</span></button>`;
   const xferRow = (a, b, amt, sub, cur) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${amt}${sub ? `<small>${sub}</small>` : ''}</span><button class="xdone" data-act="xferDone" data-a="${esc(a)}" data-b="${esc(b)}"${cur ? ` data-cur="${esc(cur)}"` : ''}>보냈어요</button></div>`;
   const oddBox = (odd) => (odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : '');
-  const personBox = (r, fm) => r.people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(r.paid[m])} · 부담 ${fm(r.owe[m])}</div></div>
+  const personBox = (r, fm) => r.people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(r.paid[m])} · 부담 ${fm(r.owe[m])}${r.sent[m] > r.eps ? ` · 보냄 ${fm(r.sent[m])}` : ''}${r.recv[m] > r.eps ? ` · 받음 ${fm(r.recv[m])}` : ''}</div></div>
       <div class="mono ${r.bal[m] > r.eps ? 'pos' : r.bal[m] < -r.eps ? 'neg' : ''}">${r.bal[m] > r.eps ? '+' : ''}${fm(Math.abs(r.bal[m]) < r.eps ? 0 : r.bal[m])}</div></summary>
-      <div class="balrows">${r.rows[m].map(({ e, p, o }) => `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>부담 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('');
+      <div class="balrows">${r.rows[m].map(({ e, p, o, pb, s, r: rv }) => pb ? `<div class="pbrow"><span>✓ ${s ? `${esc(pb.to)}에게 보냄` : `${esc(pb.from)}에게 받음`}${pb.at ? ` <i>${esc(md(fmtD(new Date(pb.at))))}</i>` : ''}</span><span><em class="${s ? 'pos' : ''}">${s ? '보냄' : '받음'} ${fm(s || rv)}</em></span></div>` : `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>부담 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('');
 
   if (mode === 'mixed') {
     const R = settle(t, 'mixed');
