@@ -2279,6 +2279,7 @@ function viewMoney(t) {
   const seg = multi ? `<div class="mseg"><button class="${S.moneyView === 'settle' ? '' : 'on'}" data-act="moneyView" data-v="list">내역</button><button class="${S.moneyView === 'settle' ? 'on' : ''}" data-act="moneyView" data-v="settle">정산</button></div>` : '';
   if (multi && S.moneyView === 'settle') return seg + viewSettle(t);
   const list = [...S.expenses];
+  const cut = multi ? settledCut(t) : 0;
   const total = list.reduce((s, e) => s + toKRW(t, e), 0);
   const refunds = -list.filter((e) => e.refund).reduce((s, e) => s + toKRW(t, e), 0);
   const spent = total + refunds;
@@ -2306,11 +2307,12 @@ function viewMoney(t) {
     <div class="big">${bigTxt}</div>
     <div class="bars">${spent ? cats.map(([c, v]) => `<div style="width:${(v / spent) * 100}%;background:${ECATS[c] || '#888'}"></div>`).join('') : ''}</div>
     <div class="legend">${cats.map(([c, v]) => `<span><i style="background:${ECATS[c] || '#888'}"></i>${esc(c)} ${mv(v)}</span>`).join('')}${total ? `<span>· 1인당 약 ${mv(total / n)}</span>` : ''}</div>${payLine2}</div>
-  ${list.length ? `${list.length > 1 ? '<div class="lphint" style="text-align:right;margin:-4px 4px 0">꾹 눌러서 순서 바꾸기</div>' : ''}` + gkeys.map((d) => { const es = sortDayExp(groups[d]); return `<div class="dategrp">${esc(d.includes('-') ? md(d) : d)} · ${won(es.reduce((s, e) => s + toKRW(t, e), 0))}</div>
+  ${list.length ? `${list.length > 1 || cut ? `<div class="lphint" style="text-align:right;margin:-4px 4px 0">${cut ? '<s>빗금</s> = 정산 끝난 지출' : ''}${cut && list.length > 1 ? ' · ' : ''}${list.length > 1 ? '꾹 눌러서 순서 바꾸기' : ''}</div>` : ''}` + gkeys.map((d) => { const es = sortDayExp(groups[d]); return `<div class="dategrp">${esc(d.includes('-') ? md(d) : d)} · ${won(es.reduce((s, e) => s + toKRW(t, e), 0))}</div>
     <div class="explist" data-d="${esc(d)}">${es.map((e) => {
       const col = ECATS[e.cat] || '#888'; const local = e.cur !== 'KRW' && t.currency && t.currency !== 'KRW';
       const sign = e.refund ? '+' : '';
-      return `<button class="exp ${e.refund ? 'refund' : ''}" data-act="editExp" data-id="${esc(e.id)}" data-elp="${esc(e.id)}">
+      const sd = cut && (e.createdAt || 0) <= cut;
+      return `<button class="exp ${e.refund ? 'refund' : ''} ${sd ? 'settled' : ''}" data-act="editExp" data-id="${esc(e.id)}" data-elp="${esc(e.id)}">
         <div class="ico" style="background:${col}1F;color:${col}">${e.refund ? '↩︎' : CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
         <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.vendor ? `${esc(e.vendor)} · ` : ''}${e.refund ? `환급 · ${esc(e.payer || '?')} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
         <div class="amt">${local ? `${sign}${num(e.amount)} ${esc(e.cur)}<small>${sign}${won(Math.abs(toKRW(t, e)))}</small>` : `${sign}${won(e.amount)}`}</div></button>`;
@@ -2396,6 +2398,7 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
       const n = (pd[`${a}\u0001${b}`] || 0) - (pd[`${b}\u0001${a}`] || 0);
       if (n > eps) xs.push([a, b, n]); else if (n < -eps) xs.push([b, a, -n]);
     }));
+    cancelCycles(xs, eps);
     xs.sort((x, y) => y[2] - x[2]);
     return { bal, paid, owe, sent, recv, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
   }
@@ -2407,6 +2410,45 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
     debt[i][1] -= x; cred[j][1] -= x; if (debt[i][1] < eps) i++; if (cred[j][1] < eps) j++;
   }
   return { bal, paid, owe, sent, recv, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
+}
+/** 둘 사이 상계 결과에 A→B→C→A 같은 순환이 있으면 지움(송금 횟수 줄이기로 보낸 돈을 체크한 뒤 생기는 '나→B' 같은 이상한 줄) */
+function cancelCycles(xs, eps) {
+  for (let guard = 0; guard < 50; guard++) {
+    const out = {}; xs.forEach((x, k) => { if (x[2] > eps) (out[x[0]] ||= []).push(k); });
+    let cyc = null; const path = [], seen = new Set();
+    const dfs = (u) => {
+      if (cyc) return; const at = path.findIndex((k) => xs[k][0] === u);
+      if (at >= 0) { cyc = path.slice(at); return; } if (seen.has(u)) return; seen.add(u);
+      for (const k of out[u] || []) { path.push(k); dfs(xs[k][1]); if (cyc) return; path.pop(); }
+    };
+    for (const u of Object.keys(out)) { path.length = 0; dfs(u); if (cyc) break; }
+    if (!cyc) break;
+    const m = Math.min(...cyc.map((k) => xs[k][2])); cyc.forEach((k) => { xs[k][2] -= m; });
+  }
+  for (let k = xs.length - 1; k >= 0; k--) if (xs[k][2] <= eps) xs.splice(k, 1);
+}
+/** 정산 끝난 지출 기준 시각: '보냈어요' 체크 시점마다, 그때까지 들어온 지출이 보낸 돈으로 다 맞춰졌으면 그 시점까지 = 정산 완료 */
+function settledCut(t) {
+  const pbs = (t.paidBacks || []).filter((pb) => pb.at).sort((a, b) => a.at - b.at);
+  if (!pbs.length) return 0;
+  const now = peopleOf(t); const home = hasLocalCur(t) ? t.currency : 'KRW';
+  const zero = (exps, ps, amtOf, pbAmt, eps) => {
+    const bal = {}; const add = (m, x) => { if (m) bal[m] = (bal[m] || 0) + x; };
+    exps.forEach((e) => { const a = amtOf(e); let sp = (e.split || []).filter(Boolean); if (!sp.length) sp = now; add(e.payer, a); sp.forEach((m) => add(m, -a / sp.length)); });
+    ps.forEach((pb) => { const x = Number(pbAmt(pb)) || 0; add(pb.from, x); add(pb.to, -x); });
+    return Object.values(bal).every((v) => Math.abs(v) <= eps);
+  };
+  let cut = 0;
+  pbs.forEach((pb, i) => {
+    const c = pb.at; const exps = S.expenses.filter((e) => (e.createdAt || 0) <= c); if (!exps.length) return;
+    const ps = pbs.slice(0, i + 1);
+    const krwOk = ps.every((x) => x.krw != null) && zero(exps, ps, (e) => toKRW(t, e), (x) => x.krw, Math.max(1, now.length));
+    const curs = [...new Set(exps.map(curOf))];
+    const mixOk = curs.every((cur) => zero(exps.filter((e) => curOf(e) === cur), ps, (e) => (e.refund ? -1 : 1) * (Number(e.amount) || 0),
+      (x) => (x.cur ? (x.cur === cur ? x.amt : 0) : cur !== home ? 0 : home === 'KRW' ? x.krw : x.loc ?? x.krw / Number(t.rate)), cur === 'KRW' ? Math.max(1, now.length) : 0.05));
+    if (krwOk || mixOk) cut = c;
+  });
+  return cut;
 }
 const hasLocalCur = (t) => !!(t.currency && t.currency !== 'KRW' && Number(t.rate) > 0);
 const curOf = (e) => e.cur || 'KRW';
