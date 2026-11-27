@@ -1287,3 +1287,6 @@ button.xfer.ok .arrow{color:inherit}
 .setmode{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
 .setmode button{border:0;border-radius:99px;background:#E9ECF1;color:#4E5968;font:inherit;font-size:12px;font-weight:500;padding:6px 12px;cursor:pointer}
 .setmode button.on{background:#191F28;color:#fff}
+
+.card h3 .minchip{float:right;border:0;border-radius:99px;background:#F2F4F6;color:#6B7684;font:inherit;font-size:11px;font-weight:500;padding:3px 9px;margin-top:-2px;cursor:pointer}
+.card h3 .minchip.on{background:#EBF2FF;color:#2E5BFF}

@@ -25,7 +25,7 @@ const S = {
   access: null, isAdmin: false, unsubAccess: null, requested: false, // 비공개 베타: 'checking' | 'ok' | 'no'
   profiles: new Map(), // uid -> {name, photo}
   weather: {}, weatherFor: null,
-  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', forkView: (() => { try { return localStorage.getItem('forkView') === 'list' ? 'list' : 'side'; } catch { return 'side'; } })(), sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), settleMode: (() => { try { return localStorage.getItem('settleMode') || null; } catch { return null; } })(), fresh: {}, share: null,
+  checks: [], packMine: false, wishSort: 'new', wishHideAdded: (() => { try { return localStorage.getItem('wishHideAdded') === '1'; } catch { return false; } })(), moneyView: 'list', forkView: (() => { try { return localStorage.getItem('forkView') === 'list' ? 'list' : 'side'; } catch { return 'side'; } })(), sumLocal: (() => { try { return localStorage.getItem('sumLocal') === '1'; } catch { return false; } })(), settleMode: (() => { try { return localStorage.getItem('settleMode') || null; } catch { return null; } })(), settleMin: (() => { try { return localStorage.getItem('settleMin') === '1'; } catch { return false; } })(), fresh: {}, share: null,
 };
 const DELETE_FLAG = 'tn_pending_delete';
 const params = new URLSearchParams(location.search);
@@ -2375,18 +2375,29 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
   const now = peopleOf(t);
   const people = [...new Set([...now, ...S.expenses.flatMap((e) => [e.payer, ...(e.split || [])])].filter(Boolean))]; const bal = {}, paid = {}, owe = {}, rows = {};
   people.forEach((m) => { bal[m] = 0; paid[m] = 0; owe[m] = 0; rows[m] = []; });
+  const pd = {}; const addPd = (a, b, x) => { if (a === b || !x) return; const k = `${a}\u0001${b}`; pd[k] = (pd[k] || 0) + x; }; // a가 b에게 갚을 돈
   exps.forEach((e) => {
     const amt = amtOf(e);
     // 나눌 사람이 비어 있으면 결제한 사람만 돈을 받고 아무도 안 내는 상태가 돼서 합이 안 맞음 → 모두로
     let split = (e.split || []).filter((m) => m in bal); if (!split.length) split = now.filter((m) => m in bal);
     const sh = split.length ? amt / split.length : 0;
     if (e.payer in bal) { bal[e.payer] += amt; paid[e.payer] += amt; }
-    split.forEach((m) => { bal[m] -= sh; owe[m] += sh; });
+    split.forEach((m) => { bal[m] -= sh; owe[m] += sh; if (e.payer in bal) addPd(m, e.payer, sh); });
     people.forEach((m) => { const p = e.payer === m ? amt : 0, o = split.includes(m) ? sh : 0; if (p || o) rows[m].push({ e, p, o }); });
   });
   // 이미 보낸 돈(정산 완료 체크) — 보낸 사람은 갚은 만큼 +, 받은 사람은 −
   const done = (t.paidBacks || []).filter((pb) => pb.from in bal && pb.to in bal).map((pb) => ({ pb, x: Number(pbAmt(pb)) || 0 })).filter((d) => d.x);
-  done.forEach(({ pb, x }) => { bal[pb.from] += x; bal[pb.to] -= x; });
+  done.forEach(({ pb, x }) => { bal[pb.from] += x; bal[pb.to] -= x; addPd(pb.from, pb.to, -x); });
+  if (!S.settleMin) {
+    // 누가 누구한테 쓴 만큼 그대로 (둘 사이만 서로 상계)
+    const xs = [];
+    people.forEach((a, i) => people.slice(i + 1).forEach((b) => {
+      const n = (pd[`${a}\u0001${b}`] || 0) - (pd[`${b}\u0001${a}`] || 0);
+      if (n > eps) xs.push([a, b, n]); else if (n < -eps) xs.push([b, a, -n]);
+    }));
+    xs.sort((x, y) => y[2] - x[2]);
+    return { bal, paid, owe, xs, rows, done, eps, people, odd: people.filter((m) => !now.includes(m)) };
+  }
   const cred = people.filter((m) => bal[m] > eps).map((m) => [m, bal[m]]).sort((a, b) => b[1] - a[1]);
   const debt = people.filter((m) => bal[m] < -eps).map((m) => [m, -bal[m]]).sort((a, b) => b[1] - a[1]);
   const xs = []; let i = 0, j = 0;
@@ -2471,14 +2482,14 @@ function viewSettle(t) {
     const all = R.curs.flatMap((cur) => R.by[cur].xs.map(([a, b, x]) => ({ a, b, x, cur })));
     const dones = R.curs.flatMap((cur) => R.by[cur].done.map((d) => ({ ...d, cur })));
     const text = all.length ? `[${t.name} 정산 · 쓴 화폐 그대로]\n` + all.map(({ a, b, x, cur }) => `${a} → ${b} ${fmCur(cur, x)}`).join('\n') : '';
-    return `${seg}<div class="card"><h3>보낼 돈</h3>
+    return `${seg}<div class="card"><h3>보낼 돈<button class="minchip ${S.settleMin ? 'on' : ''}" data-act="settleMin">${S.settleMin ? '✓ ' : ''}송금 횟수 줄이기</button></h3>
       ${all.length ? all.map(({ a, b, x, cur }) => xferRow(a, b, fmCur(cur, x), '', cur)).join('')
         + `<button class="btn ghost block small" data-act="copy" data-text="${esc(text)}" style="margin-top:4px">정산 내역 복사하기</button>`
       : `<div class="muted small">${dones.length ? '다 보냈어요. 정산 끝!' : '정산할 금액이 없어요. 깔끔!'}</div>`}
       ${dones.length ? `<div class="xdonelist"><div class="small muted">보낸 돈 · 누르면 취소</div>${dones.map(({ pb, x, cur }) => doneBtn(pb, fmCur(cur, x))).join('')}</div>` : ''}</div>
     ${oddBox(R.odd)}
     ${R.curs.map((cur) => `<div class="card"><h3>사람별 내역 · ${esc(cur === 'KRW' ? '원화' : curName(cur))} <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>${personBox(R.by[cur], (x) => fmCur(cur, x))}</div>`).join('')}
-    <p class="small muted" style="padding:0 4px">환율 없이 통화마다 따로 정산해요. 같은 사람끼리 통화별로 따로 보내면 돼요.${(t.paidBacks || []).some((pb) => !pb.cur) ? ` 원화·${esc(cn)} 보기에서 체크한 보낸 돈은 ${esc(hasLocalCur(t) ? cn : '원화')} 쪽에 반영돼요.` : ''}</p>`;
+    <p class="small muted" style="padding:0 4px">${S.settleMin ? '송금 횟수가 적게 사람을 묶어서 보여줘요. ' : '누가 누구 돈으로 얼마 썼는지 둘 사이끼리 상계해서 보여줘요. '}환율 없이 통화마다 따로 정산해요. 같은 사람끼리 통화별로 따로 보내면 돼요.${(t.paidBacks || []).some((pb) => !pb.cur) ? ` 원화·${esc(cn)} 보기에서 체크한 보낸 돈은 ${esc(hasLocalCur(t) ? cn : '원화')} 쪽에 반영돼요.` : ''}</p>`;
   }
 
   const local = mode === 'local';
@@ -2489,7 +2500,7 @@ function viewSettle(t) {
   const text = xs.length ? `[${t.name} 정산${local ? ` · ${cn}` : ''}]\n` + xs.map(([a, b, x]) => `${a} → ${b} ${fm(x)}`).join('\n') : '';
   // 카드 환율을 따로 넣은 현지 통화 지출 → 원화 정산과 현지 통화 정산 비율이 딱 맞지 않음
   const ownRate = hasLocal ? S.expenses.filter((e) => e.cur === t.currency && Number(e.rate) > 0 && Math.abs(Number(e.rate) - Number(t.rate)) > 1e-9).length : 0;
-  return `${seg}<div class="card"><h3>보낼 돈</h3>
+  return `${seg}<div class="card"><h3>보낼 돈<button class="minchip ${S.settleMin ? 'on' : ''}" data-act="settleMin">${S.settleMin ? '✓ ' : ''}송금 횟수 줄이기</button></h3>
     ${xs.length ? xs.map(([a, b, x]) => xferRow(a, b, fm(x), sub ? sub(x) : '')).join('')
       + `<button class="btn ghost block small" data-act="copy" data-text="${esc(text)}" style="margin-top:4px">정산 내역 복사하기</button>`
     : `<div class="muted small">${done.length ? '다 보냈어요. 정산 끝!' : '정산할 금액이 없어요. 깔끔!'}</div>`}
@@ -2498,7 +2509,7 @@ function viewSettle(t) {
   <div class="card"><h3>사람별 내역 <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>
     ${personBox(r, fm)}
     <div class="small muted" style="margin-top:8px;text-align:right">전체 결제 ${fm(r.people.reduce((s, m) => s + r.paid[m], 0))} = 전체 부담 ${fm(r.people.reduce((s, m) => s + r.owe[m], 0))}</div></div>
-  <p class="small muted" style="padding:0 4px">${local
+  <p class="small muted" style="padding:0 4px">${S.settleMin ? '송금 횟수가 적게 사람을 묶어서 보여줘요. ' : '누가 누구 돈으로 얼마 썼는지 둘 사이끼리 상계해서 보여줘요. '}${local
     ? `${esc(cn)}로 쓴 건 적은 금액 그대로, 원화 등 다른 통화는 기본 환율(${esc(rateLabel(t.currency, t.rate))})로 바꿔서 계산해요.`
     : `외화 지출은 지출마다 넣은 환율(없으면 기본 환율)로 원화 환산해서 계산해요.`}${ownRate ? ` 환율을 따로 넣은 지출 ${ownRate}건이 있어서 원화·${esc(cn)} 정산이 정확히 같은 비율은 아니에요.` : ''}</p>`;
 }
@@ -3589,6 +3600,7 @@ document.addEventListener('click', (ev) => {
     case 'editExp': expForm(t, S.expenses.find((x) => x.id === id)); break;
     case 'copy': copy(el.dataset.text); break;
     case 'xferDone': xferDone(el.dataset.a, el.dataset.b, el.dataset.cur); break;
+    case 'settleMin': S.settleMin = !S.settleMin; try { localStorage.setItem('settleMin', S.settleMin ? '1' : ''); } catch {} render(); break;
     case 'settleMode': S.settleMode = el.dataset.v; try { localStorage.setItem('settleMode', S.settleMode); } catch {} render(); break;
     case 'xferUndo': { const t = trip(); const id = el.dataset.id; if (!t) break;
       askConfirm('보낸 돈 표시를 취소할까요?', '취소하기', () => savePaidBacks(t, (t.paidBacks || []).filter((x) => x.id !== id))); break; }
