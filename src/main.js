@@ -2474,9 +2474,9 @@ function viewSettle(t) {
   const doneBtn = (pb, fm) => `<button class="xfer ok" data-act="xferUndo" data-id="${esc(pb.id)}">✓ ${esc(pb.from)} <span class="arrow">→</span> ${esc(pb.to)}<span class="m">${fm}${pb.at ? `<small>${esc(md(fmtD(new Date(pb.at))))}</small>` : ''}</span></button>`;
   const xferRow = (a, b, amt, sub, cur) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${amt}${sub ? `<small>${sub}</small>` : ''}</span><button class="xdone" data-act="xferDone" data-a="${esc(a)}" data-b="${esc(b)}"${cur ? ` data-cur="${esc(cur)}"` : ''}>보냈어요</button></div>`;
   const oddBox = (odd) => (odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : '');
-  const personBox = (r, fm) => r.people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(r.paid[m])} · 부담 ${fm(r.owe[m])}${r.sent[m] > r.eps ? ` · 보냄 ${fm(r.sent[m])}` : ''}${r.recv[m] > r.eps ? ` · 받음 ${fm(r.recv[m])}` : ''}</div></div>
-      <div class="mono ${r.bal[m] > r.eps ? 'pos' : r.bal[m] < -r.eps ? 'neg' : ''}">${r.bal[m] > r.eps ? '+' : ''}${fm(Math.abs(r.bal[m]) < r.eps ? 0 : r.bal[m])}</div></summary>
-      <div class="balrows">${r.rows[m].map(({ e, p, o, pb, s, r: rv }) => pb ? `<div class="pbrow"><span>✓ ${s ? `${esc(pb.to)}에게 보냄` : `${esc(pb.from)}에게 받음`}${pb.at ? ` <i>${esc(md(fmtD(new Date(pb.at))))}</i>` : ''}</span><span><em class="${s ? 'pos' : ''}">${s ? '보냄' : '받음'} ${fm(s || rv)}</em></span></div>` : `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>부담 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('');
+  const personBox = (r, fm) => `<div class="balhead"><span></span><span>결제한 돈</span><span>정산 후 쓴 돈</span></div>` + r.people.map((m) => `<details class="balx"><summary class="bal bal2"><b>${esc(m)}</b>
+      <div class="mono">${fm(r.paid[m])}</div><div class="mono strong">${fm(r.owe[m])}</div></summary>
+      <div class="balrows">${r.rows[m].map(({ e, p, o, pb, s, r: rv }) => pb ? `<div class="pbrow"><span>✓ ${s ? `${esc(pb.to)}에게 보냄` : `${esc(pb.from)}에게 받음`}${pb.at ? ` <i>${esc(md(fmtD(new Date(pb.at))))}</i>` : ''}</span><span><em>${fm(s || rv)}</em></span></div>` : `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>내 몫 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('');
 
   if (mode === 'mixed') {
     const R = settle(t, 'mixed');
@@ -2509,7 +2509,7 @@ function viewSettle(t) {
   ${oddBox(r.odd)}
   <div class="card"><h3>사람별 내역 <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>
     ${personBox(r, fm)}
-    <div class="small muted" style="margin-top:8px;text-align:right">전체 결제 ${fm(r.people.reduce((s, m) => s + r.paid[m], 0))} = 전체 부담 ${fm(r.people.reduce((s, m) => s + r.owe[m], 0))}</div></div>
+    <div class="small muted" style="margin-top:8px;text-align:right">전체 결제 ${fm(r.people.reduce((s, m) => s + r.paid[m], 0))} = 정산 후 쓴 돈 합계 ${fm(r.people.reduce((s, m) => s + r.owe[m], 0))}</div></div>
   <p class="small muted" style="padding:0 4px">${S.settleMin ? '송금 횟수가 적게 사람을 묶어서 보여줘요. ' : '누가 누구 돈으로 얼마 썼는지 둘 사이끼리 상계해서 보여줘요. '}${local
     ? `${esc(cn)}로 쓴 건 적은 금액 그대로, 원화 등 다른 통화는 기본 환율(${esc(rateLabel(t.currency, t.rate))})로 바꿔서 계산해요.`
     : `외화 지출은 지출마다 넣은 환율(없으면 기본 환율)로 원화 환산해서 계산해요.`}${ownRate ? ` 환율을 따로 넣은 지출 ${ownRate}건이 있어서 원화·${esc(cn)} 정산이 정확히 같은 비율은 아니에요.` : ''}</p>`;
