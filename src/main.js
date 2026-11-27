@@ -2528,7 +2528,10 @@ function viewSettle(t) {
 
   if (mode === 'mixed') {
     const R = settle(t, 'mixed');
-    const all = R.curs.flatMap((cur) => R.by[cur].xs.map(([a, b, x]) => ({ a, b, x, cur })));
+    // 원화·현지 통화 보기에서 '보냈어요'로 다 끝냈으면(통화 섞어 보낸 것) 통화별로 남은 자투리는 서로 상쇄되는 것 → 정산 끝
+    const pbNoCur = (t.paidBacks || []).some((pb) => !pb.cur);
+    const allDone = pbNoCur && !settle(t, 'krw').xs.length;
+    const all = allDone ? [] : R.curs.flatMap((cur) => R.by[cur].xs.map(([a, b, x]) => ({ a, b, x, cur })));
     const dones = R.curs.flatMap((cur) => R.by[cur].done.map((d) => ({ ...d, cur })));
     const text = all.length ? `[${t.name} 정산 · 쓴 화폐 그대로]\n` + all.map(({ a, b, x, cur }) => `${a} → ${b} ${fmCur(cur, x)}`).join('\n') : '';
     return `${seg}<div class="card"><h3>보낼 돈<button class="minchip ${S.settleMin ? 'on' : ''}" data-act="settleMin">${S.settleMin ? '✓ ' : ''}송금 횟수 줄이기</button></h3>
