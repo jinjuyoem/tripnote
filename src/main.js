@@ -2385,6 +2385,9 @@ function settle(t, local = false) {
     split.forEach((m) => { bal[m] -= sh; owe[m] += sh; });
     people.forEach((m) => { const p = e.payer === m ? amt : 0, o = split.includes(m) ? sh : 0; if (p || o) rows[m].push({ e, p, o }); });
   });
+  // 이미 보낸 돈(정산 완료 체크) — 보낸 사람은 갚은 만큼 +, 받은 사람은 −
+  const done = (t.paidBacks || []).filter((pb) => pb.from in bal && pb.to in bal);
+  done.forEach((pb) => { const x = Number(local ? pb.loc : pb.krw) || 0; bal[pb.from] += x; bal[pb.to] -= x; });
   const cred = people.filter((m) => bal[m] > eps).map((m) => [m, bal[m]]).sort((a, b) => b[1] - a[1]);
   const debt = people.filter((m) => bal[m] < -eps).map((m) => [m, -bal[m]]).sort((a, b) => b[1] - a[1]);
   const xs = []; let i = 0, j = 0;
@@ -2393,13 +2396,30 @@ function settle(t, local = false) {
     debt[i][1] -= x; cred[j][1] -= x; if (debt[i][1] < eps) i++; if (cred[j][1] < eps) j++;
   }
   const odd = people.filter((m) => !now.includes(m));
-  return { bal, paid, owe, xs, rows, odd, eps };
+  return { bal, paid, owe, xs, rows, odd, eps, done };
+}
+/** 정산 '보냈어요' — 원화·현지 통화 둘 다 그때 정산 금액으로 저장해서 어느 쪽으로 봐도 0이 되게 */
+function xferDone(a, b) {
+  const t = trip(); if (!t) return;
+  const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
+  const find = (r) => r.xs.find(([x, y]) => x === a && y === b)?.[2];
+  let krw = find(settle(t, false)), loc = hasLocal ? find(settle(t, true)) : null;
+  if (krw == null && loc == null) return;
+  if (krw == null) krw = loc * Number(t.rate);
+  if (hasLocal && loc == null) loc = krw / Number(t.rate);
+  const pb = { id: uid(), from: a, to: b, krw: Math.round(krw * 100) / 100, loc: loc == null ? null : Math.round(loc * 100) / 100, at: Date.now(), by: S.user?.uid || null };
+  savePaidBacks(t, [...(t.paidBacks || []), pb]);
+  toast(`${a} → ${b} 보냈어요`);
+}
+function savePaidBacks(t, list) {
+  t.paidBacks = list; render();
+  write(() => updateDoc(doc(db, 'trips', t.id), { paidBacks: list }));
 }
 function viewSettle(t) {
   if (peopleOf(t).length < 2) return '<div class="empty"><b>동행인을 초대해 주세요</b>오른쪽 위 설정에서 초대 링크를 보내면, 참여한 사람끼리 자동으로 정산돼요.</div>';
   const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
   const local = hasLocal && S.sumLocal;
-  const { bal, paid, owe, xs, rows, odd, eps } = settle(t, local); const people = Object.keys(bal);
+  const { bal, paid, owe, xs, rows, odd, eps, done } = settle(t, local); const people = Object.keys(bal);
   const cn = curName(t.currency);
   const fm = local ? (x) => `${num(x)} ${cn}` : won;
   const sub = local ? (x) => `약 ${won(x * Number(t.rate))}` : hasLocal ? (x) => `약 ${num(x / Number(t.rate))} ${cn}` : null;
@@ -2410,9 +2430,10 @@ function viewSettle(t) {
   const totPaid = people.reduce((s, m) => s + paid[m], 0);
   const sgn = (x) => (x > eps ? '+' : '');
   return `<div class="card"><h3>보낼 돈${chip}</h3>
-    ${xs.length ? xs.map(([a, b, x]) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${fm(x)}${sub ? `<small>${sub(x)}</small>` : ''}</span></div>`).join('')
+    ${xs.length ? xs.map(([a, b, x]) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${fm(x)}${sub ? `<small>${sub(x)}</small>` : ''}</span><button class="xdone" data-act="xferDone" data-a="${esc(a)}" data-b="${esc(b)}" aria-label="보냈어요">보냈어요</button></div>`).join('')
       + `<button class="btn ghost block small" data-act="copy" data-text="${esc(text)}" style="margin-top:4px">정산 내역 복사하기</button>`
-    : '<div class="muted small">정산할 금액이 없어요. 깔끔!</div>'}</div>
+    : `<div class="muted small">${done.length ? '다 보냈어요. 정산 끝!' : '정산할 금액이 없어요. 깔끔!'}</div>`}
+    ${done.length ? `<div class="xdonelist"><div class="small muted">보낸 돈 · 누르면 취소</div>${done.map((pb) => `<button class="xfer ok" data-act="xferUndo" data-id="${esc(pb.id)}">✓ ${esc(pb.from)} <span class="arrow">→</span> ${esc(pb.to)}<span class="m">${fm(Number(local ? pb.loc : pb.krw) || 0)}${pb.at ? `<small>${esc(md(fmtD(new Date(pb.at))))}</small>` : ''}</span></button>`).join('')}</div>` : ''}</div>
   ${odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : ''}
   <div class="card"><h3>사람별 내역 <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>
     ${people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(paid[m])} · 부담 ${fm(owe[m])}</div></div>
@@ -3509,6 +3530,9 @@ document.addEventListener('click', (ev) => {
     case 'newExp': expForm(t, null); break;
     case 'editExp': expForm(t, S.expenses.find((x) => x.id === id)); break;
     case 'copy': copy(el.dataset.text); break;
+    case 'xferDone': xferDone(el.dataset.a, el.dataset.b); break;
+    case 'xferUndo': { const t = trip(); const id = el.dataset.id; if (!t) break;
+      askConfirm('보낸 돈 표시를 취소할까요?', '취소하기', () => savePaidBacks(t, (t.paidBacks || []).filter((x) => x.id !== id))); break; }
     case 'settime': {
       const i = S.items.find((x) => x.id === id); if (!i) break;
       openTimeWheel(i.time, `${i.title} 시간`, (v) => { i.time = v; render(); write(() => updateDoc(doc(db, 'trips', t.id, 'items', id), { time: v })); });
