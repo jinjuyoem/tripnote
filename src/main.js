@@ -1078,7 +1078,7 @@ function forkHtml(t, b, pinNo) {
       return `<div class="mini fl" data-act="tab" data-v="flight" data-lp="F:${esc(f.id)}~${esc(f._kind)}"><span>${esc(r.time || '')}</span><b>${dep ? '🛫 ' + esc(f.from || '') + ' 출발' : '🛬 ' + esc(f.to || '') + ' 도착'}</b></div>`;
     }
     const i = r.i; const c = (ICATS[i.cat] || ICATS.기타)[1]; const no = pinNo.get(i.id);
-    return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><span>${no ? `<i class="mno">${no}</i>` : ''}${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}</div>`;
+    return `<div class="mini" style="--c:${c}" data-act="editItem" data-id="${esc(i.id)}" data-lp="${esc(i.id)}"><span>${no ? `<i class="mno">${no}</i>` : ''}${esc(i.time || '')}</span><b>${esc(i.title)}</b>${itemSpendHtml(t, i)}${S.forkView === 'list' && i.kind !== 'memo' && i.cat !== '이동' ? `<span class="mlinks"><a class="lnk map" data-act="ext" href="${esc(placeUrl(t, i))}" target="_blank" rel="noopener">구글맵</a>${inChina(i) ? `<a class="lnk map" data-act="ext" href="${esc(amapPlaceUrl(i, t.city))}" target="_blank" rel="noopener">고덕</a>` : ''}</span>` : ''}</div>`;
   };
   const nextTitle = next ? (next.kind === 'item' ? (next.i.kind === 'memo' ? '' : next.i.title) : '') : '';
   const list = S.forkView === 'list';

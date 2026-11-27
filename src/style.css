@@ -1262,3 +1262,5 @@ label.f[hidden]{display:none}
 .fork.list .mini > b{grid-column:2;font-size:13px}
 .fork.list .mini > :not(span):not(b){grid-column:2}
 .fork.list .lane .seg.sm{padding-left:60px}
+.fork.list .mini > .mlinks{grid-column:2;display:flex;gap:10px;margin-top:4px}
+.fork.list .mlinks .lnk{background:none;border:0;padding:2px 0;font-size:12px;font-weight:600;color:var(--accent)}
