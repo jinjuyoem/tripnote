@@ -2518,7 +2518,13 @@ function viewSettle(t) {
   const oddBox = (odd) => (odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : '');
   const personBox = (r, fm) => `<div class="balhead"><span></span><span>결제한 돈</span><span>정산 후 쓴 돈</span></div>` + r.people.map((m) => `<details class="balx"><summary class="bal bal2"><b>${esc(m)}</b>
       <div class="mono">${fm(r.paid[m])}</div><div class="mono strong">${fm(r.owe[m])}</div></summary>
-      <div class="balrows">${r.rows[m].map(({ e, p, o, pb, s, r: rv }) => pb ? `<div class="pbrow"><span>✓ ${s ? `${esc(pb.to)}에게 보냄` : `${esc(pb.from)}에게 받음`}${pb.at ? ` <i>${esc(md(fmtD(new Date(pb.at))))}</i>` : ''}</span><span><em>${fm(s || rv)}</em></span></div>` : `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>내 몫 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('');
+      <div class="balrows">${(() => {
+        const ex = r.rows[m].filter((x) => x.e), pbs = r.rows[m].filter((x) => x.pb);
+        const sd = (d) => (d && d.includes('-') ? d.slice(5).replace('-', '.').replace(/^0/, '') : '');
+        const rowsHtml = ex.map(({ e, p, o }) => `<div class="brow"><span class="bt"><i>${esc(sd(e.date))}</i>${esc(e.title || '지출')}</span><span class="bn">${p ? fm(p) : ''}</span><span class="bn">${o ? fm(o) : ''}</span></div>`).join('');
+        const pbHtml = pbs.map(({ pb, s, r: rv }) => `<div class="brow bpb"><span class="bt">${s ? `${esc(pb.to)}에게 보냄` : `${esc(pb.from)}에게 받음`}</span><span class="bn"></span><span class="bn">${fm(s || rv)}</span></div>`).join('');
+        return (rowsHtml || '<div class="brow"><span class="bt muted">지출 없음</span></div>') + (pbHtml ? `<div class="bsep">송금</div>${pbHtml}` : '');
+      })()}</div></details>`).join('');
 
   if (mode === 'mixed') {
     const R = settle(t, 'mixed');
