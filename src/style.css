@@ -1264,3 +1264,16 @@ label.f[hidden]{display:none}
 .fork.list .lane .seg.sm{padding-left:60px}
 .fork.list .mini > .mlinks{grid-column:2;display:flex;gap:10px;margin-top:4px}
 .fork.list .mlinks .lnk{background:none;border:0;padding:2px 0;font-size:12px;font-weight:600;color:var(--accent)}
+
+/* 정산: 통화 전환·지출별 내역 */
+.card h3 .curchip2{float:right;font-size:11px;font-weight:600;color:var(--blue,#2E5BFF);background:#EBF2FF;border:0;border-radius:99px;padding:3px 9px;margin-top:-2px;cursor:pointer}
+.xfer .m small{display:block;text-align:right;font-size:10.5px;font-weight:500;color:var(--muted,#8B95A1);margin-top:1px}
+.balx{border-top:1px dashed var(--line)}
+.balx:first-of-type{border-top:0}
+.balx > summary{list-style:none;cursor:pointer;border-top:0}
+.balx > summary::-webkit-details-marker{display:none}
+.balrows{padding:0 0 10px;font-size:12px}
+.balrows > div{display:flex;justify-content:space-between;gap:10px;padding:4px 0;color:var(--ink,#191F28)}
+.balrows i{font-style:normal;color:var(--muted,#8B95A1);font-size:11px}
+.balrows em{font-style:normal;margin-left:8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.setwarn{background:#FFF6DB;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.5;margin-bottom:12px}

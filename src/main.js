@@ -2293,7 +2293,7 @@ function viewMoney(t) {
   const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
   const showLocal = hasLocal && S.sumLocal;
   // 현지 통화로 보기: 그 통화로 쓴 건 원래 금액, 나머지는 원화를 기본 환율로 나눔
-  const loc = (e) => (e.cur === t.currency ? (e.refund ? -1 : 1) * (Number(e.amount) || 0) : toKRW(t, e) / Number(t.rate));
+  const loc = (e) => locAmt(t, e);
   const mv = showLocal ? (krw) => `${num(Math.round(krw / Number(t.rate)))} ${esc(curName(t.currency))}` : won;
   let bigTxt = won(total);
   if (showLocal) {
@@ -2313,7 +2313,7 @@ function viewMoney(t) {
       return `<button class="exp ${e.refund ? 'refund' : ''}" data-act="editExp" data-id="${esc(e.id)}" data-elp="${esc(e.id)}">
         <div class="ico" style="background:${col}1F;color:${col}">${e.refund ? '↩︎' : CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
         <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.vendor ? `${esc(e.vendor)} · ` : ''}${e.refund ? `환급 · ${esc(e.payer || '?')} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
-        <div class="amt">${local ? `${sign}${num(e.amount)} ${esc(t.currency)}<small>${sign}${won(Math.abs(toKRW(t, e)))}</small>` : `${sign}${won(e.amount)}`}</div></button>`;
+        <div class="amt">${local ? `${sign}${num(e.amount)} ${esc(e.cur)}<small>${sign}${won(Math.abs(toKRW(t, e)))}</small>` : `${sign}${won(e.amount)}`}</div></button>`;
     }).join('')}</div>`; }).join('')
     : '<div class="empty"><b>기록된 지출이 없어요</b>쓴 돈을 바로바로 적어 두면 정산이 쉬워요.</div>'}`;
 }
@@ -2365,36 +2365,63 @@ function dragExp(card, clientY, isTouch) {
   if (isTouch) { document.addEventListener('touchmove', tmove, { passive: true }); document.addEventListener('touchend', end); document.addEventListener('touchcancel', end); }
   else { document.addEventListener('pointermove', pmove); document.addEventListener('pointerup', pup); }
 }
-function settle(t) {
+/** 현지 통화 금액: 그 통화로 쓴 건 원래 금액(정확), 다른 통화는 원화 ÷ 기본 환율 */
+function locAmt(t, e) {
+  return e.cur === t.currency ? (e.refund ? -1 : 1) * (Number(e.amount) || 0) : toKRW(t, e) / Number(t.rate);
+}
+function settle(t, local = false) {
+  const amtOf = local ? (e) => locAmt(t, e) : (e) => toKRW(t, e);
+  const eps = local ? 0.005 : 0.5;
   // 초대로 참여한 사람 + (예전에 이름으로 넣었던 사람이 지출에 남아 있으면 같이)
-  const people = [...new Set([...peopleOf(t), ...S.expenses.flatMap((e) => [e.payer, ...(e.split || [])])].filter(Boolean))]; const bal = {}, paid = {}, owe = {};
-  people.forEach((m) => { bal[m] = 0; paid[m] = 0; owe[m] = 0; });
+  const now = peopleOf(t);
+  const people = [...new Set([...now, ...S.expenses.flatMap((e) => [e.payer, ...(e.split || [])])].filter(Boolean))]; const bal = {}, paid = {}, owe = {}, rows = {};
+  people.forEach((m) => { bal[m] = 0; paid[m] = 0; owe[m] = 0; rows[m] = []; });
   S.expenses.forEach((e) => {
-    const amt = toKRW(t, e); const split = (e.split || []).filter((m) => m in bal);
+    const amt = amtOf(e);
+    // 나눌 사람이 비어 있으면 결제한 사람만 돈을 받고 아무도 안 내는 상태가 돼서 합이 안 맞음 → 모두로
+    let split = (e.split || []).filter((m) => m in bal); if (!split.length) split = now.filter((m) => m in bal);
+    const sh = split.length ? amt / split.length : 0;
     if (e.payer in bal) { bal[e.payer] += amt; paid[e.payer] += amt; }
-    if (split.length) { const sh = amt / split.length; split.forEach((m) => { bal[m] -= sh; owe[m] += sh; }); }
+    split.forEach((m) => { bal[m] -= sh; owe[m] += sh; });
+    people.forEach((m) => { const p = e.payer === m ? amt : 0, o = split.includes(m) ? sh : 0; if (p || o) rows[m].push({ e, p, o }); });
   });
-  const cred = people.filter((m) => bal[m] > 0.5).map((m) => [m, bal[m]]).sort((a, b) => b[1] - a[1]);
-  const debt = people.filter((m) => bal[m] < -0.5).map((m) => [m, -bal[m]]).sort((a, b) => b[1] - a[1]);
+  const cred = people.filter((m) => bal[m] > eps).map((m) => [m, bal[m]]).sort((a, b) => b[1] - a[1]);
+  const debt = people.filter((m) => bal[m] < -eps).map((m) => [m, -bal[m]]).sort((a, b) => b[1] - a[1]);
   const xs = []; let i = 0, j = 0;
   while (i < debt.length && j < cred.length) {
     const x = Math.min(debt[i][1], cred[j][1]); xs.push([debt[i][0], cred[j][0], x]);
-    debt[i][1] -= x; cred[j][1] -= x; if (debt[i][1] < 0.5) i++; if (cred[j][1] < 0.5) j++;
+    debt[i][1] -= x; cred[j][1] -= x; if (debt[i][1] < eps) i++; if (cred[j][1] < eps) j++;
   }
-  return { bal, paid, owe, xs };
+  const odd = people.filter((m) => !now.includes(m));
+  return { bal, paid, owe, xs, rows, odd, eps };
 }
 function viewSettle(t) {
   if (peopleOf(t).length < 2) return '<div class="empty"><b>동행인을 초대해 주세요</b>오른쪽 위 설정에서 초대 링크를 보내면, 참여한 사람끼리 자동으로 정산돼요.</div>';
-  const { bal, paid, owe, xs } = settle(t); const people = Object.keys(bal);
-  const text = xs.length ? `[${t.name} 정산]\n` + xs.map(([a, b, x]) => `${a} → ${b} ${won(x)}`).join('\n') : '';
-  return `<div class="card"><h3>보낼 돈</h3>
-    ${xs.length ? xs.map(([a, b, x]) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${won(x)}</span></div>`).join('')
+  const hasLocal = t.currency && t.currency !== 'KRW' && Number(t.rate) > 0;
+  const local = hasLocal && S.sumLocal;
+  const { bal, paid, owe, xs, rows, odd, eps } = settle(t, local); const people = Object.keys(bal);
+  const cn = curName(t.currency);
+  const fm = local ? (x) => `${num(x)} ${cn}` : won;
+  const sub = local ? (x) => `약 ${won(x * Number(t.rate))}` : hasLocal ? (x) => `약 ${num(x / Number(t.rate))} ${cn}` : null;
+  const text = xs.length ? `[${t.name} 정산${local ? ` · ${cn}` : ''}]\n` + xs.map(([a, b, x]) => `${a} → ${b} ${fm(x)}`).join('\n') : '';
+  const chip = hasLocal ? `<button class="curchip2" data-act="sumCur">${local ? '원화로 보기' : `${esc(cn)}로 보기`} ⇄</button>` : '';
+  // 카드 환율을 따로 넣은 현지 통화 지출 → 원화 정산과 현지 통화 정산 비율이 딱 맞지 않음
+  const ownRate = hasLocal ? S.expenses.filter((e) => e.cur === t.currency && Number(e.rate) > 0 && Math.abs(Number(e.rate) - Number(t.rate)) > 1e-9).length : 0;
+  const totPaid = people.reduce((s, m) => s + paid[m], 0);
+  const sgn = (x) => (x > eps ? '+' : '');
+  return `<div class="card"><h3>보낼 돈${chip}</h3>
+    ${xs.length ? xs.map(([a, b, x]) => `<div class="xfer">${esc(a)} <span class="arrow">→</span> ${esc(b)}<span class="m">${fm(x)}${sub ? `<small>${sub(x)}</small>` : ''}</span></div>`).join('')
       + `<button class="btn ghost block small" data-act="copy" data-text="${esc(text)}" style="margin-top:4px">정산 내역 복사하기</button>`
     : '<div class="muted small">정산할 금액이 없어요. 깔끔!</div>'}</div>
-  <div class="card"><h3>사람별 내역</h3>
-    ${people.map((m) => `<div class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${won(paid[m])} · 부담 ${won(owe[m])}</div></div>
-      <div class="mono ${bal[m] > 0.5 ? 'pos' : bal[m] < -0.5 ? 'neg' : ''}">${bal[m] > 0.5 ? '+' : ''}${won(bal[m])}</div></div>`).join('')}</div>
-  <p class="small muted" style="padding:0 4px">외화 지출은 설정의 환율로 원화 환산해서 계산해요.</p>`;
+  ${odd.length ? `<div class="setwarn">⚠️ 지금 동행 목록에 없는 이름이 지출에 남아 있어요: <b>${odd.map(esc).join(', ')}</b><br>그 지출을 눌러 결제한 사람·나눌 사람을 다시 골라 주세요.</div>` : ''}
+  <div class="card"><h3>사람별 내역 <span class="small muted" style="font-weight:400">· 눌러서 지출별로 보기</span></h3>
+    ${people.map((m) => `<details class="balx"><summary class="bal"><div><b>${esc(m)}</b><div class="small muted">결제 ${fm(paid[m])} · 부담 ${fm(owe[m])}</div></div>
+      <div class="mono ${bal[m] > eps ? 'pos' : bal[m] < -eps ? 'neg' : ''}">${sgn(bal[m])}${fm(Math.abs(bal[m]) < eps ? 0 : bal[m])}</div></summary>
+      <div class="balrows">${rows[m].map(({ e, p, o }) => `<div><span>${esc(e.title || '지출')}${e.date ? ` <i>${esc(md(e.date))}</i>` : ''}</span><span>${p ? `<em class="pos">결제 ${fm(p)}</em>` : ''}${o ? `<em>부담 ${fm(o)}</em>` : ''}</span></div>`).join('') || '<div class="muted">지출 없음</div>'}</div></details>`).join('')}
+    <div class="small muted" style="margin-top:8px;text-align:right">전체 결제 ${fm(totPaid)} = 전체 부담 ${fm(people.reduce((s, m) => s + owe[m], 0))}</div></div>
+  <p class="small muted" style="padding:0 4px">${local
+    ? `${esc(cn)}로 쓴 건 적은 금액 그대로, 원화 등 다른 통화는 기본 환율(${esc(rateLabel(t.currency, t.rate))})로 바꿔서 계산해요.`
+    : `외화 지출은 지출마다 넣은 환율(없으면 기본 환율)로 원화 환산해서 계산해요.`}${ownRate ? ` 환율을 따로 넣은 지출 ${ownRate}건이 있어서 원화·${esc(cn)} 정산이 정확히 같은 비율은 아니에요.` : ''}</p>`;
 }
 
 /* ---------------- sheets ---------------- */
