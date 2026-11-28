@@ -2314,7 +2314,7 @@ function viewMoney(t) {
       const sd = cut && (e.createdAt || 0) <= cut;
       return `<button class="exp ${e.refund ? 'refund' : ''} ${sd ? 'settled' : ''}" data-act="editExp" data-id="${esc(e.id)}" data-elp="${esc(e.id)}">
         <div class="ico" style="background:${col}1F;color:${col}">${e.refund ? '↩︎' : CAT_EMOJI[e.cat || '기타'] || esc((e.cat || '기타').slice(0, 2))}</div>
-        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.vendor ? `${esc(e.vendor)} · ` : ''}${e.refund ? `환급 · ${esc(e.payer || '?')} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${esc(e.payer || '?')} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
+        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="s">${e.vendor ? `${esc(e.vendor)} · ` : ''}${e.refund ? `환급 · ${payerLabel(e)} 받음` : `${e.pay ? `${PAY_ICON[e.pay] || ''} ${esc(e.pay)} · ` : ''}${payerLabel(e)} 결제`} · ${(e.split || []).length === n ? '모두' : esc((e.split || []).join(', '))}${local && e.rate ? ` · ${esc(rateLabel(e.cur, e.rate))}` : ''}</div></div>
         <div class="amt">${local ? `${sign}${num(e.amount)} ${esc(e.cur)}<small>${sign}${won(Math.abs(toKRW(t, e)))}</small>` : `${sign}${won(e.amount)}`}</div></button>`;
     }).join('')}</div>`; }).join('')
     : '<div class="empty"><b>기록된 지출이 없어요</b>쓴 돈을 바로바로 적어 두면 정산이 쉬워요.</div>'}`;
@@ -2375,7 +2375,7 @@ function locAmt(t, e) {
 function settleCore(t, exps, amtOf, eps, pbAmt) {
   // 초대로 참여한 사람 + (예전에 이름으로 넣었던 사람이 지출에 남아 있으면 같이)
   const now = peopleOf(t);
-  const people = [...new Set([...now, ...S.expenses.flatMap((e) => [e.payer, ...(e.split || [])])].filter(Boolean))]; const bal = {}, paid = {}, owe = {}, rows = {};
+  const people = [...new Set([...now, ...S.expenses.flatMap((e) => [...payerList(e), ...(e.split || [])])].filter(Boolean))]; const bal = {}, paid = {}, owe = {}, rows = {};
   people.forEach((m) => { bal[m] = 0; paid[m] = 0; owe[m] = 0; rows[m] = []; });
   const pd = {}; const addPd = (a, b, x) => { if (a === b || !x) return; const k = `${a}\u0001${b}`; pd[k] = (pd[k] || 0) + x; }; // a가 b에게 갚을 돈
   exps.forEach((e) => {
@@ -2383,9 +2383,10 @@ function settleCore(t, exps, amtOf, eps, pbAmt) {
     // 나눌 사람이 비어 있으면 결제한 사람만 돈을 받고 아무도 안 내는 상태가 돼서 합이 안 맞음 → 모두로
     let split = (e.split || []).filter((m) => m in bal); if (!split.length) split = now.filter((m) => m in bal);
     const sh = split.length ? amt / split.length : 0;
-    if (e.payer in bal) { bal[e.payer] += amt; paid[e.payer] += amt; }
-    split.forEach((m) => { bal[m] -= sh; owe[m] += sh; if (e.payer in bal) addPd(m, e.payer, sh); });
-    people.forEach((m) => { const p = e.payer === m ? amt : 0, o = split.includes(m) ? sh : 0; if (p || o) rows[m].push({ e, p, o }); });
+    const ps = payShares(e).filter(([m]) => m in bal);
+    ps.forEach(([m, f]) => { bal[m] += amt * f; paid[m] += amt * f; });
+    split.forEach((m) => { bal[m] -= sh; owe[m] += sh; ps.forEach(([p, f]) => addPd(m, p, sh * f)); });
+    people.forEach((m) => { const p = ps.reduce((s, [x, f]) => s + (x === m ? amt * f : 0), 0), o = split.includes(m) ? sh : 0; if (p || o) rows[m].push({ e, p, o }); });
   });
   // 이미 보낸 돈(정산 완료 체크) — 보낸 사람은 갚은 만큼 +, 받은 사람은 −
   const done = (t.paidBacks || []).filter((pb) => pb.from in bal && pb.to in bal).map((pb) => ({ pb, x: Number(pbAmt(pb)) || 0 })).filter((d) => d.x);
@@ -2434,7 +2435,7 @@ function settledCut(t) {
   const now = peopleOf(t); const home = hasLocalCur(t) ? t.currency : 'KRW';
   const zero = (exps, ps, amtOf, pbAmt, eps) => {
     const bal = {}; const add = (m, x) => { if (m) bal[m] = (bal[m] || 0) + x; };
-    exps.forEach((e) => { const a = amtOf(e); let sp = (e.split || []).filter(Boolean); if (!sp.length) sp = now; add(e.payer, a); sp.forEach((m) => add(m, -a / sp.length)); });
+    exps.forEach((e) => { const a = amtOf(e); let sp = (e.split || []).filter(Boolean); if (!sp.length) sp = now; payShares(e).forEach(([m, f]) => add(m, a * f)); sp.forEach((m) => add(m, -a / sp.length)); });
     ps.forEach((pb) => { const x = Number(pbAmt(pb)) || 0; add(pb.from, x); add(pb.to, -x); });
     return Object.values(bal).every((v) => Math.abs(v) <= eps);
   };
@@ -2595,6 +2596,71 @@ function wirePills(sh) {
 }
 const pillVal = (sh, n) => [...sh.querySelectorAll(`[data-pills="${n}"] .pill.on`)].map((p) => p.dataset.v);
 const fval = (sh) => (n) => sh.querySelector(`[name=${n}]`).value.trim();
+
+/* 결제한 사람 여러 명: expenses.payers = {이름: 낸 금액(지출 통화)} (2명 이상일 때만), payer = 제일 많이 낸 사람 */
+const multiPay = (e) => !!(e && e.payers && Object.keys(e.payers).length > 1);
+const payerList = (e) => (multiPay(e) ? Object.keys(e.payers) : e?.payer ? [e.payer] : []);
+/** [[이름, 비율]] — 낸 금액 비율대로 나눔 */
+function payShares(e) {
+  if (multiPay(e)) {
+    const ent = Object.entries(e.payers).map(([m, x]) => [m, Math.max(0, Number(x) || 0)]); const tot = ent.reduce((a, x) => a + x[1], 0);
+    if (tot > 0) return ent.filter((x) => x[1] > 0).map(([m, x]) => [m, x / tot]);
+    return ent.map(([m]) => [m, 1 / ent.length]);
+  }
+  return e.payer ? [[e.payer, 1]] : [];
+}
+const payerLabel = (e) => (multiPay(e) ? Object.keys(e.payers).map(esc).join('·') : esc(e.payer || '?'));
+const r2 = (x) => Math.round(x * 100) / 100;
+/** 결제한 사람 고르기(여러 명 가능). 2명 이상 고르면 각자 낸 금액 칸 */
+function payerPick(name, people, e, fallback) {
+  const sel = multiPay(e) ? Object.keys(e.payers).filter((m) => people.includes(m)) : [e?.payer && people.includes(e.payer) ? e.payer : fallback];
+  return `<div class="payerpick" data-pp="${name}">${pills(name, people, sel.length ? sel : [fallback], true)}<div class="payamts" hidden></div></div>`;
+}
+function wirePayers(sh, name, e, amtSel) {
+  const box = sh.querySelector(`[data-pp="${name}"]`); if (!box) return;
+  const g = box.querySelector('[data-pills]'), out = box.querySelector('.payamts');
+  const typed = {}; if (multiPay(e)) Object.entries(e.payers).forEach(([m, x]) => { typed[m] = String(x); });
+  const amt = () => Number(sh.querySelector(amtSel)?.value) || 0;
+  const paintSum = () => {
+    const sel = pillVal(sh, name); if (sel.length < 2) return;
+    const a = amt(); const filled = sel.filter((m) => typed[m] !== undefined && typed[m] !== '');
+    const used = filled.reduce((s, m) => s + (Number(typed[m]) || 0), 0); const empty = sel.filter((m) => !filled.includes(m));
+    const left = a - used;
+    out.querySelectorAll('[data-pa]').forEach((inp) => { inp.placeholder = empty.length && a ? num(r2(Math.max(0, left) / empty.length)) : '0'; });
+    const h = out.querySelector('.pahint');
+    if (!a) h.textContent = '금액을 먼저 적어 주세요';
+    else if (left < -0.005) h.innerHTML = `<b class="paerr">합계가 ${num(r2(-left))} 많아요</b>`;
+    else if (!empty.length && Math.abs(left) > 0.005) h.innerHTML = `<b class="paerr">${num(r2(left))} 모자라요</b>`;
+    else h.textContent = empty.length ? `비운 칸은 남은 금액(${num(r2(left))})을 똑같이 나눠요` : '금액이 딱 맞아요';
+  };
+  const draw = () => {
+    const sel = pillVal(sh, name);
+    out.hidden = sel.length < 2; if (sel.length < 2) { out.innerHTML = ''; return; }
+    out.innerHTML = sel.map((m) => `<label class="payamt"><span>${esc(m)}</span><input class="inp mono" type="number" step="any" inputmode="decimal" data-pa="${esc(m)}" value="${esc(typed[m] ?? '')}"></label>`).join('') + '<div class="hint pahint"></div>';
+    out.querySelectorAll('[data-pa]').forEach((inp) => inp.addEventListener('input', () => { typed[inp.dataset.pa] = inp.value; paintSum(); }));
+    paintSum();
+  };
+  g.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.pill'); if (!b) return;
+    if (!pillVal(sh, name).length) b.classList.add('on'); // 한 명은 꼭
+    draw();
+  });
+  sh.querySelector(amtSel)?.addEventListener('input', paintSum);
+  draw();
+}
+/** {payer, payers} 또는 {err} */
+function readPayers(sh, name, amount, fallback) {
+  const sel = pillVal(sh, name);
+  if (sel.length < 2) return { payer: sel[0] || fallback, payers: null };
+  const vals = {}; sel.forEach((m) => { const x = sh.querySelector(`[data-pp="${name}"] [data-pa="${CSS.escape(m)}"]`)?.value.trim(); vals[m] = x === '' || x == null ? null : Number(x); });
+  if (Object.values(vals).some((x) => x != null && !(x >= 0))) return { err: '결제한 금액을 확인해 주세요' };
+  const used = Object.values(vals).reduce((s, x) => s + (x || 0), 0); const empty = sel.filter((m) => vals[m] == null); const left = amount - used;
+  if (left < -0.005) return { err: '결제한 사람별 금액 합이 금액보다 많아요' };
+  if (!empty.length && Math.abs(left) > 0.005) return { err: '결제한 사람별 금액 합이 금액과 달라요' };
+  empty.forEach((m, i) => { vals[m] = i === empty.length - 1 ? r2(left - r2(left / empty.length) * (empty.length - 1)) : r2(left / empty.length); });
+  const payer = sel.reduce((a, m) => (vals[m] > vals[a] ? m : a), sel[0]);
+  return { payer, payers: vals };
+}
 
 /* trip settings */
 function tripForm(t) {
@@ -2790,12 +2856,12 @@ function itemForm(t, item) {
     <div class="spendbox"><span class="flbl">💸 여기서 쓴 돈 (가계부에 자동 기록)</span>
       <div class="two"><input class="inp mono" type="number" step="any" inputmode="decimal" name="spend" value="${esc(linked?.amount ?? '')}" placeholder="0" style="flex:2">${pills('scur', spCurs, linked?.cur || spCurs[0])}</div>
       <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
-      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
+      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람 <small class="muted">(여러 명 가능)</small></span>${payerPick('spayer', people, linked, people.includes(myName(t)) ? myName(t) : people[0])}</div>
       <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || item.who || people, true)}</div>` : ''}
       <div class="hint">가계부 정산에 바로 반영돼요.</div></div>
     ${isNew ? '' : '<button type="button" class="towish" data-x="towish">💛 찜으로 옮기기 <span>날짜 미정으로 빼두기</span></button>'}
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh);
+    wirePills(sh); wireTimeFields(sh, '일정 시간'); const v = fval(sh); wirePayers(sh, 'spayer', linked, '[name=spend]');
     const pe = photoEditor(t, sh, '#itPics', '#itFile', item.photos);
     // '누구랑?'을 바꾸면 돈 나눌 사람도 같이 맞춤 (지출이 아직 없을 때)
     sh.querySelector('[data-pills=who]')?.addEventListener('click', () => setTimeout(() => {
@@ -2824,6 +2890,8 @@ function itemForm(t, item) {
       };
       if (people.length > 1 && !pillVal(sh, 'who').length) return toast('누구랑 가는지 한 명 이상 골라 주세요');
       const spend = Number(sh.querySelector('[name=spend]').value);
+      const pp = people.length > 1 ? readPayers(sh, 'spayer', spend, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0])) : { payer: linked?.payer || people[0], payers: linked?.payers || null };
+      if (spend > 0 && pp.err) return toast(pp.err);
       const itemId = isNew ? uid() : item.id;
       closeSheet(); S.day = data.date;
       {
@@ -2834,7 +2902,7 @@ function itemForm(t, item) {
         if (spend > 0) {
           const exp = {
             title: data.title, amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: SPEND_CAT[data.cat] || '기타',
-            pay: pillVal(sh, 'spay')[0] || null, payer: pillVal(sh, 'spayer')[0] || linked?.payer || people[0], split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(), date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
+            pay: pillVal(sh, 'spay')[0] || null, payer: pp.payer, payers: pp.payers, split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(), date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
           };
           if (expenseId && linked) b.update(doc(db, 'trips', t.id, 'expenses', expenseId), exp);
           else { expenseId = uid(); b.set(doc(db, 'trips', t.id, 'expenses', expenseId), { ...exp, createdAt: Date.now(), by: S.user.uid }); }
@@ -2937,12 +3005,12 @@ function memoForm(t, m) {
         <label class="f" style="margin-top:8px"><span>가계부에 적을 이름</span><input class="inp" name="stitle" value="${esc(linked?.title || '')}" placeholder="비우면 메모 첫 줄"></label>
         <div><span class="flbl">분류</span>${pills('scat', Object.keys(ECATS), linked?.cat || '기타')}</div>
         <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
-        ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
+        ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람 <small class="muted">(여러 명 가능)</small></span>${payerPick('spayer', people, linked, people.includes(myName(t)) ? myName(t) : people[0])}</div>
         <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || people, true)}</div>` : ''}
       </div>
       <div class="hint">가계부 정산에 바로 반영돼요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    wirePills(sh); const v = fval(sh);
+    wirePills(sh); const v = fval(sh); wirePayers(sh, 'spayer', linked, '[name=spend]');
     const spendIn = sh.querySelector('[name=spend]');
     spendIn.addEventListener('input', () => { if (Number(spendIn.value) > 0) sh.querySelector('#spendMore').hidden = false; });
     sh.querySelector('[data-x=addspend]').addEventListener('click', (e) => { e.currentTarget.hidden = true; sh.querySelector('#memoSpend').hidden = false; spendIn.focus(); });
@@ -2963,6 +3031,8 @@ function memoForm(t, m) {
       const itemId = isNew ? uid() : m.id;
       if (isNew || data.date !== m.date) data.pos = insertPos(data.date, '', itemId);
       const spend = Number(spendIn.value);
+      const pp = people.length > 1 ? readPayers(sh, 'spayer', spend, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0])) : { payer: linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]), payers: linked?.payers || null };
+      if (spend > 0 && pp.err) return toast(pp.err);
       closeSheet(); S.day = data.date;
       const b = writeBatch(db);
       // 쓴 돈 → 가계부 지출로 연결 (있으면 수정, 비우면 삭제). 이름은 비우면 메모 첫 줄
@@ -2971,7 +3041,7 @@ function memoForm(t, m) {
         const first = data.memo.split('\n').map((x) => x.trim()).find(Boolean) || '메모';
         const exp = {
           title: v('stitle') || (first.length > 30 ? first.slice(0, 30) + '…' : first), amount: spend, cur: pillVal(sh, 'scur')[0] || spCurs[0], cat: pillVal(sh, 'scat')[0] || '기타',
-          pay: pillVal(sh, 'spay')[0] || null, payer: pillVal(sh, 'spayer')[0] || linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]),
+          pay: pillVal(sh, 'spay')[0] || null, payer: pp.payer, payers: pp.payers,
           split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(),
           date: data.date.startsWith('day') ? fmtD(new Date()) : data.date, itemId,
         };
@@ -3031,7 +3101,7 @@ function flightForm(t, f) {
       <div style="margin-top:8px"><span class="flbl">결제처 (항공사·여행사)</span><input class="inp" name="svendor" value="${esc(linked?.vendor || '')}" placeholder="비우면 항공사 이름" list="fvendorList" autocomplete="off">
         <datalist id="fvendorList">${[...new Set(S.expenses.map((x) => x.vendor).filter(Boolean))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
       <div style="margin-top:8px"><span class="flbl">결제 수단</span>${pills('spay', PAY_METHODS, linked ? linked.pay || '' : lsGet('payMethod') || '카드')}</div>
-      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람</span>${pills('spayer', people, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]))}</div>
+      ${people.length > 1 ? `<div style="margin-top:8px"><span class="flbl">결제한 사람 <small class="muted">(여러 명 가능)</small></span>${payerPick('spayer', people, linked, people.includes(myName(t)) ? myName(t) : people[0])}</div>
       <div style="margin-top:8px"><span class="flbl">나눌 사람</span>${pills('ssplit', people, linked?.split || (whoSel.length ? whoSel.filter((x) => people.includes(x)) : people), true)}</div>` : ''}</div>
     <label class="f"><span>메모</span><textarea class="inp" name="memo" placeholder="체크인 시간, 탑승 게이트…">${esc(f.memo)}</textarea></label>
     <div class="f"><span class="flbl">체크인 QR · 모바일 탑승권 사진 (최대 4장)</span>
@@ -3039,7 +3109,7 @@ function flightForm(t, f) {
       <label class="btn ghost block" style="margin-top:8px">📷 사진 추가<input type="file" accept="image/*" multiple hidden id="qrFile"></label>
       <div class="hint">캡처한 QR이나 탑승권 화면을 넣어두면 공항에서 바로 꺼내 볼 수 있어요.</div></div>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    wirePills(sh); wireTimeFields(sh, '비행기 시간'); const v = fval(sh);
+    wirePills(sh); wireTimeFields(sh, '비행기 시간'); const v = fval(sh); wirePayers(sh, 'spayer', linked, '[name=spend]');
     // 왕복: 오는편 칸 열기, 공항은 가는편 반대로 채움
     let round = false;
     const fillRet = () => {
@@ -3153,6 +3223,9 @@ function flightForm(t, f) {
     };
     sh.querySelector('[data-x=save]').onclick = async () => {
       if (!v('depDate') || !v('depTime')) return toast('출발 날짜와 시간을 넣어 주세요');
+      const spendV = Number(sh.querySelector('[name=spend]').value);
+      const pp = people.length > 1 ? readPayers(sh, 'spayer', spendV, linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0])) : { payer: linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]), payers: linked?.payers || null };
+      if (spendV > 0 && pp.err) return toast(pp.err);
       const depAt = `${v('depDate')}T${v('depTime')}`;
       const arrAt = v('arrDate') && v('arrTime') ? `${v('arrDate')}T${v('arrTime')}` : '';
       const data = {
@@ -3182,7 +3255,7 @@ function flightForm(t, f) {
         const exp = {
           title: linked?.title || route, amount: spend, cur: pillVal(sh, 'scur')[0] || 'KRW', cat: '항공',
           vendor: v('svendor') || data.airline || null, pay: pillVal(sh, 'spay')[0] || null,
-          payer: pillVal(sh, 'spayer')[0] || linked?.payer || (people.includes(myName(t)) ? myName(t) : people[0]),
+          payer: pp.payer, payers: pp.payers,
           split: (() => { const x = pillVal(sh, 'ssplit'); return x.length ? x : linked?.split || [...people]; })(),
           date: linked?.date || data.depAt.slice(0, 10), flightIds: legIds,
         };
@@ -3236,16 +3309,16 @@ function expForm(t, e) {
     <label class="f" id="vendorRow"><span>결제처 (항공사·여행사)</span><input class="inp" name="vendor" value="${esc(e.vendor || '')}" placeholder="예: 트립닷컴, 마이리얼트립, 대한항공" list="vendorList" autocomplete="off">
       <datalist id="vendorList">${[...new Set(S.expenses.map((x) => x.vendor).filter(Boolean))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></label>
     <label class="f" id="payRow"><span>결제 수단</span>${pills('pay', PAY_METHODS, e.pay || '')}</label>
-    <label class="f"><span id="payerLbl">결제한 사람</span>${pills('payer', people, e.payer)}</label>
+    <div class="f"><span id="payerLbl" class="flbl">결제한 사람 <small class="muted">(여러 명 가능)</small></span>${payerPick('payer', people, e, people.includes(myName(t)) ? myName(t) : people[0])}</div>
     <label class="f"><span>나눌 사람</span>${pills('split', people, e.split || people, true)}</label>
     <label class="f"><span>날짜</span><input class="inp" type="date" name="date" value="${esc(e.date)}"></label>
     <div class="rowbtns">${isNew ? '' : '<button class="btn danger" data-x="del">삭제</button>'}<button class="btn dark" data-x="save">저장</button></div>`, (sh) => {
-    wirePills(sh); const v = fval(sh);
+    wirePills(sh); const v = fval(sh); wirePayers(sh, 'payer', e, '[name=amount]');
     let refund = !!e.refund;
     const paintKind = () => {
       sh.querySelectorAll('#expKind button').forEach((b) => b.classList.toggle('on', (b.dataset.k === '1') === refund));
       sh.querySelector('#payRow').hidden = refund;
-      sh.querySelector('#payerLbl').textContent = refund ? '받은 사람' : '결제한 사람';
+      sh.querySelector('#payerLbl').firstChild.textContent = refund ? '받은 사람 ' : '결제한 사람 ';
       sh.querySelector('[name=title]').placeholder = refund ? '예: 택스 리펀, 보증금 환불' : '예: 이치란 라멘';
     };
     paintKind();
@@ -3283,8 +3356,9 @@ function expForm(t, e) {
       const amount = Number(v('amount'));
       if (!v('title') || !(amount > 0)) return toast('내용과 금액을 확인해 주세요');
       const split = pillVal(sh, 'split'); if (!split.length) return toast('나눌 사람을 한 명 이상 골라 주세요');
+      const pp = readPayers(sh, 'payer', amount, people[0]); if (pp.err) return toast(pp.err);
       const cur = curNow(); const rIn = Number(sh.querySelector('[name=rate]')?.value);
-      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', refund, pay: refund ? null : pillVal(sh, 'pay')[0] || null, payer: pillVal(sh, 'payer')[0] || people[0], split, date: v('date'), vendor: isAir() ? v('vendor') || null : null };
+      const data = { title: v('title'), amount, cur, rate: cur !== 'KRW' && rIn > 0 ? rIn / rateUnit(cur) : null, cat: pillVal(sh, 'cat')[0] || '기타', refund, pay: refund ? null : pillVal(sh, 'pay')[0] || null, payer: pp.payer, payers: pp.payers, split, date: v('date'), vendor: isAir() ? v('vendor') || null : null };
       try { if (data.pay) localStorage.setItem('payMethod', data.pay); } catch {}
       closeSheet();
       if (isNew) await write(() => setDoc(doc(db, 'trips', t.id, 'expenses', uid()), { ...data, createdAt: Date.now(), by: S.user.uid }));
@@ -3353,7 +3427,7 @@ async function renameInTrip(tripId, from, to) {
     const snap = await getDocs(collection(db, 'trips', tripId, col));
     snap.forEach((d) => {
       const x = d.data(); const up = {};
-      if (col === 'expenses') { if (x.payer === from) up.payer = to; const sp = swap(x.split); if (sp) up.split = sp; }
+      if (col === 'expenses') { if (x.payer === from) up.payer = to; const sp = swap(x.split); if (sp) up.split = sp; if (x.payers && from in x.payers) { const pm = {}; Object.entries(x.payers).forEach(([m, v]) => { const k = m === from ? to : m; pm[k] = (pm[k] || 0) + v; }); up.payers = pm; } }
       const w = swap(x.who); if (w) up.who = w;
       if (Object.keys(up).length && n < 450) { batch.update(d.ref, up); n++; }
     });

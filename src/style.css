@@ -1302,3 +1302,10 @@ button.xfer.ok .arrow{color:inherit}
 
 .card h3 .minchip{float:right;border:0;border-radius:99px;background:#F2F4F6;color:#6B7684;font:inherit;font-size:11px;font-weight:500;padding:3px 9px;margin-top:-2px;cursor:pointer}
 .card h3 .minchip.on{background:#EBF2FF;color:#2E5BFF}
+/* 결제한 사람 여러 명 */
+.payamts{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.payamt{display:flex;align-items:center;gap:10px}
+.payamt>span{flex:0 0 72px;font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.payamt .inp{flex:1;padding-top:8px;padding-bottom:8px}
+.paerr{color:#E5484D;font-weight:600}
+.flbl small,.f>span small{font-weight:400;font-size:11px}
